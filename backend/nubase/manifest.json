@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "provider": "nubase",
+  "appCode": "app8xdk2kt6j0rc",
+  "migrations": [
+    {
+      "id": "20260725182714_create_content_compiler_core",
+      "name": "create_content_compiler_core",
+      "file": "backend/nubase/migrations/20260725182714-create-content-compiler-core.sql",
+      "sqlHash": "97dd69b8010a070198c55ea282e5769f7af5784b98bb818764077d29aa635206",
+      "dryRunId": "0pjZ-r9vBUmgzmFHvH_f_mL-YrUs7pYh",
+      "operationId": "FayAe9sI5U9xVNBurouyH",
+      "status": "applied",
+      "createdByTool": "mcp__ottermind__apply_nubase_migration",
+      "appliedAt": "2026-07-25T18:27:14.437Z"
+    }
+  ]
+}

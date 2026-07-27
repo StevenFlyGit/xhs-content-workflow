@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "provider": "nubase",
+  "capabilities": [
+    "auth",
+    "database",
+    "storage",
+    "server_functions"
+  ],
+  "modules": [
+    "nubase-auth",
+    "nubase-database",
+    "nubase-storage",
+    "nubase-server-functions"
+  ],
+  "standardImport": "src/integrations/nubase",
+  "installedBy": "mcp__ottermind__ensure_vibecoding_backend",
+  "facadeVersion": "2026-07-23.2",
+  "facadeHash": "df0086709db8c267aa54c9cf60ae0b41c9abbb276b472ab6b09d7d64fa16ed54",
+  "intentModules": [
+    "auth.email_password",
+    "database.crud",
+    "storage.private_bucket",
+    "server_functions.secure_action",
+    "ai.nubase_gateway"
+  ]
+}
