@@ -4,30 +4,9 @@ dist/
 .cache/
 .turbo/
 .wrangler/
-
-# Environment and local configuration
-/.env
-.env.*
-!.env.example
-*.local
-
-# Python tooling
-venv/
-.venv/
-__pycache__/
-*.py[cod]
-
-# Test and coverage output
-coverage/
-
-# Editor and operating-system files
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# Alternative package-manager lockfiles
 bun.lockb
 package-lock.json
 pnpm-lock.yaml
 yarn.lock
+
+/.env

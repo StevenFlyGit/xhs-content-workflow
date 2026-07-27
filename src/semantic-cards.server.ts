@@ -4,10 +4,6 @@ type ProjectPayload = {
   name?: string
   eventName?: string
   originalText?: string
-  audience?: string
-  tone?: string
-  mustKeep?: string
-  privatePoints?: string
 }
 
 type SourceSentence = {
@@ -249,7 +245,7 @@ async function callOpenAICompatible(env: RuntimeEnv | undefined, project: Projec
   const model = envString(env, 'MODEL_NAME', 'model_name') || 'gpt-4.1-mini'
   if (!apiKey) throw new Error('缺少模型密钥')
 
-  const prompt = `你是一个中文内容编辑系统。任务：将用户提交的完整文段，按语义顺序拆成若干张可阅读、可发布的小红书图片。\n\n硬性规则：\n1. 图片正文必须完整保留用户原文，不得改写、删减、总结、替换原文句子。\n2. 你只能返回句子 ID 的分组、每页标题、少量导语/结束语。\n3. 标题不能直接截取正文开头，需概括本页原文。\n4. 每张内容卡尽量 120-280 个中文字符；过长语义块拆成连续的 2-4 张卡。\n5. 不要在语义强相关的句子中间强行断开；同一语义块的卡片必须连续。\n6. 所有句子 ID 必须且只能出现一次；若确实无法判断，也要按原顺序分配。\n7. 每张卡的 title 必须是你根据本页内容生成的“小标题”，控制在 6-14 个汉字；禁止直接复制原文开头，禁止使用省略号，禁止追加“· 2 / 第2页”等页码。\n8. 如果原文开头是“一楼的H1-1展区主要是……”这类句子，标题应概括为“展区里的模型信号”“未来会走向何处”这类短标题，而不是照搬正文。\n\n用户背景：\n项目：${project.name || ''}\n活动：${project.eventName || ''}\n目标读者：${project.audience || ''}\n语气：${project.tone || ''}\n必须保留：${project.mustKeep || ''}\n不允许公开：${project.privatePoints || ''}\n\n句子列表：\n${sentences.map(sentence => `${sentence.id}: ${sentence.text}`).join('\n')}\n\n只返回 JSON，不要解释。格式：\n{\n  "deckTitle": "整组图片标题",\n  "deckSubtitle": "一句封面副标题",\n  "semanticBlocks": [{"id":"B01","title":"语义块标题","summary":"块说明","sourceSentenceIds":["S01-01"],"estimatedCardCount":2}],\n  "cards": [{"blockId":"B01","pageRole":"block-start","title":"本页标题","addedLead":"可选短导语","addedEnding":"可选短结束语","sourceSentenceIds":["S01-01"]}]\n}`
+  const prompt = `你是一个中文内容编辑系统。任务：将用户提交的完整文段，按语义顺序拆成若干张可阅读、可发布的小红书图片。\n\n硬性规则：\n1. 图片正文必须完整保留用户原文，不得改写、删减、总结、替换原文句子。\n2. 你只能返回句子 ID 的分组、每页标题、少量导语/结束语。\n3. 标题不能直接截取正文开头，需概括本页原文。\n4. 每张内容卡尽量 120-280 个中文字符；过长语义块拆成连续的 2-4 张卡。\n5. 不要在语义强相关的句子中间强行断开；同一语义块的卡片必须连续。\n6. 所有句子 ID 必须且只能出现一次；若确实无法判断，也要按原顺序分配。\n7. 每张卡的 title 必须是你根据本页内容生成的“小标题”，控制在 6-14 个汉字；禁止直接复制原文开头，禁止使用省略号，禁止追加“· 2 / 第2页”等页码。\n8. 如果原文开头是“一楼的H1-1展区主要是……”这类句子，标题应概括为“展区里的模型信号”“未来会走向何处”这类短标题，而不是照搬正文。\n\n用户背景：\n项目：${project.name || ''}\n活动：${project.eventName || ''}\n\n句子列表：\n${sentences.map(sentence => `${sentence.id}: ${sentence.text}`).join('\n')}\n\n只返回 JSON，不要解释。格式：\n{\n  "deckTitle": "整组图片标题",\n  "deckSubtitle": "一句封面副标题",\n  "semanticBlocks": [{"id":"B01","title":"语义块标题","summary":"块说明","sourceSentenceIds":["S01-01"],"estimatedCardCount":2}],\n  "cards": [{"blockId":"B01","pageRole":"block-start","title":"本页标题","addedLead":"可选短导语","addedEnding":"可选短结束语","sourceSentenceIds":["S01-01"]}]\n}`
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
