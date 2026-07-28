@@ -1,16 +1,19 @@
+import { buildSourceSentences, type SourceSentence } from './lib/source-segmentation'
+import {
+  fitPublicationDraft,
+  publicationCharacterCount,
+  SUMMARY_GENERATION_TARGET,
+  SUMMARY_REWRITE_THRESHOLD,
+  type PublicationDraft,
+} from './lib/publication-limits'
+
 type RuntimeEnv = Record<string, unknown>
 
 type ProjectPayload = {
   name?: string
   eventName?: string
   originalText?: string
-}
-
-type SourceSentence = {
-  id: string
-  paragraphId: string
-  text: string
-  index: number
+  outputMode?: 'summary' | 'card'
 }
 
 type SemanticCard = {
@@ -46,6 +49,7 @@ type ModelPlan = {
   deckSubtitle?: string
   semanticBlocks: ModelBlock[]
   cards: ModelCardPlan[]
+  publication?: PublicationDraft & { toneLabel?: string }
 }
 
 function envString(env: RuntimeEnv | undefined, ...keys: string[]) {
@@ -54,24 +58,6 @@ function envString(env: RuntimeEnv | undefined, ...keys: string[]) {
     if (typeof value === 'string' && value.trim()) return value.trim()
   }
   return ''
-}
-
-function splitParagraphIntoSentences(text: string, paragraphIndex: number) {
-  const trimmed = text.trim()
-  if (!trimmed) return []
-  const units = trimmed.match(/[^。！？!?；;\n]+[。！？!?；;]?|[^。！？!?；;\n]+$/g) || [trimmed]
-  return units.map((unit, index) => ({
-    id: `S${String(paragraphIndex + 1).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`,
-    paragraphId: `P${String(paragraphIndex + 1).padStart(2, '0')}`,
-    text: unit.trim(),
-    index,
-  })).filter(item => item.text)
-}
-
-function buildSourceSentences(originalText: string): SourceSentence[] {
-  return originalText
-    .split(/\n\s*\n/)
-    .flatMap((paragraph, paragraphIndex) => splitParagraphIntoSentences(paragraph, paragraphIndex))
 }
 
 function compactJsonFromModel(text: string) {
@@ -189,14 +175,36 @@ function fallbackPlan(project: ProjectPayload, sentences: SourceSentence[]): { s
 
 function normalizePlan(project: ProjectPayload, sentences: SourceSentence[], plan: ModelPlan) {
   const validIds = new Set(sentences.map(sentence => sentence.id))
+  const assignedToBlocks = new Set<string>()
   const used = new Set<string>()
   const blocks = Array.isArray(plan.semanticBlocks) ? plan.semanticBlocks.map((block, index) => ({
     id: block.id || `B${String(index + 1).padStart(2, '0')}`,
     title: String(block.title || `语义块 ${index + 1}`).slice(0, 30),
     summary: block.summary || '',
-    sourceSentenceIds: (block.sourceSentenceIds || []).filter(id => validIds.has(id)),
+    sourceSentenceIds: (block.sourceSentenceIds || []).filter(id => {
+      if (!validIds.has(id) || assignedToBlocks.has(id)) return false
+      assignedToBlocks.add(id)
+      return true
+    }),
     estimatedCardCount: block.estimatedCardCount || 1,
   })).filter(block => block.sourceSentenceIds.length) : []
+
+  const missingBlockGroups = new Map<string, SourceSentence[]>()
+  sentences.filter(sentence => !assignedToBlocks.has(sentence.id)).forEach(sentence => {
+    const group = missingBlockGroups.get(sentence.paragraphId) || []
+    group.push(sentence)
+    missingBlockGroups.set(sentence.paragraphId, group)
+  })
+  for (const group of missingBlockGroups.values()) {
+    const index = blocks.length
+    blocks.push({
+      id: `B${String(index + 1).padStart(2, '0')}`,
+      title: `补充内容${String(index + 1).padStart(2, '0')}`,
+      summary: '模型未归入已有主题，系统已自动补齐以确保原文完整覆盖',
+      sourceSentenceIds: group.map(sentence => sentence.id),
+      estimatedCardCount: Math.max(1, Math.ceil([...group.map(sentence => sentence.text).join('')].length / 240)),
+    })
+  }
 
   const cards: SemanticCard[] = []
   cards.push({
@@ -239,13 +247,43 @@ function normalizePlan(project: ProjectPayload, sentences: SourceSentence[], pla
   }
 }
 
+function fallbackPublication(project: ProjectPayload) {
+  const draft = fitPublicationDraft({
+    title: (project.name || project.eventName || '今天想记录一下').slice(0, 36),
+    body: project.originalText || '',
+    tags: '#生活记录 #真实感受',
+  })
+  return {
+    ...draft,
+    publicationTone: '原文保真整理',
+    publicationCharacterCount: publicationCharacterCount(draft),
+  }
+}
+
+function normalizePublication(project: ProjectPayload, plan: ModelPlan) {
+  const publication = plan.publication
+  const draft = fitPublicationDraft({
+    title: String(publication?.title || plan.deckTitle || project.name || project.eventName || '今天想记录一下').slice(0, 36),
+    body: String(publication?.body || ''),
+    tags: String(publication?.tags || '#生活记录 #真实感受'),
+  })
+  return {
+    ...draft,
+    publicationTone: String(publication?.toneLabel || '自然真诚').slice(0, 18),
+    publicationCharacterCount: publicationCharacterCount(draft),
+  }
+}
+
 async function callOpenAICompatible(env: RuntimeEnv | undefined, project: ProjectPayload, sentences: SourceSentence[]) {
   const baseUrl = envString(env, 'MODEL_BASE_URL', 'model_base_url').replace(/\/$/, '') || 'https://api.openai.com/v1'
   const apiKey = envString(env, 'MODEL_KEY', 'model_key', 'OPENAI_API_KEY')
   const model = envString(env, 'MODEL_NAME', 'model_name') || 'gpt-4.1-mini'
   if (!apiKey) throw new Error('缺少模型密钥')
 
-  const prompt = `你是一个中文内容编辑系统。任务：将用户提交的完整文段，按语义顺序拆成若干张可阅读、可发布的小红书图片。\n\n硬性规则：\n1. 图片正文必须完整保留用户原文，不得改写、删减、总结、替换原文句子。\n2. 你只能返回句子 ID 的分组、每页标题、少量导语/结束语。\n3. 标题不能直接截取正文开头，需概括本页原文。\n4. 每张内容卡尽量 120-280 个中文字符；过长语义块拆成连续的 2-4 张卡。\n5. 不要在语义强相关的句子中间强行断开；同一语义块的卡片必须连续。\n6. 所有句子 ID 必须且只能出现一次；若确实无法判断，也要按原顺序分配。\n7. 每张卡的 title 必须是你根据本页内容生成的“小标题”，控制在 6-14 个汉字；禁止直接复制原文开头，禁止使用省略号，禁止追加“· 2 / 第2页”等页码。\n8. 如果原文开头是“一楼的H1-1展区主要是……”这类句子，标题应概括为“展区里的模型信号”“未来会走向何处”这类短标题，而不是照搬正文。\n\n用户背景：\n项目：${project.name || ''}\n活动：${project.eventName || ''}\n\n句子列表：\n${sentences.map(sentence => `${sentence.id}: ${sentence.text}`).join('\n')}\n\n只返回 JSON，不要解释。格式：\n{\n  "deckTitle": "整组图片标题",\n  "deckSubtitle": "一句封面副标题",\n  "semanticBlocks": [{"id":"B01","title":"语义块标题","summary":"块说明","sourceSentenceIds":["S01-01"],"estimatedCardCount":2}],\n  "cards": [{"blockId":"B01","pageRole":"block-start","title":"本页标题","addedLead":"可选短导语","addedEnding":"可选短结束语","sourceSentenceIds":["S01-01"]}]\n}`
+  const originalLength = [...(project.originalText || '')].length
+  const publicationTask = `\n\n精华版发布文案任务（无论当前界面选择哪种输出模式，都必须与卡片结果同时返回）：\n1. 原文共 ${originalLength} 字，${originalLength > SUMMARY_REWRITE_THRESHOLD ? `超过 ${SUMMARY_REWRITE_THRESHOLD} 字，必须重新组织和压缩` : '可以轻量润色并优化阅读节奏'}。\n2. 根据内容场景自动选择最自然的口吻：游乐园、旅行等偏欢快活泼；学术论坛、研究思考偏严谨深刻；开发者社区偏轻松活跃；读书、电影、聚餐或日常小事偏真实、有画面感和个人情绪。不要拘泥于这些类别，要根据原文自行判断。\n3. 写成可以直接粘贴到小红书发布页的成稿，标题、正文、标签合计目标约 ${SUMMARY_GENERATION_TARGET} 字，绝对不要超过 930 字，为平台计数留出余量。\n4. 开头要有自然的吸引力，但不要使用夸张标题党；正文要有具体信息、个人判断和节奏变化，结尾留下真实余味或交流空间。\n5. 少用“首先、其次、最后、总的来说、值得一提、赋能、深刻认识到”等模板词；不要写“作为一个 AI”；不要堆砌 emoji、感叹号、排比和空洞金句。\n6. 不能编造原文没有出现的人物、地点、对话、数字、感官细节或结论。可以改变表达和组织方式，但事实必须来自原文。\n7. toneLabel 用 2-8 个字描述实际采用的口吻，例如“欢快有画面”“严谨而深刻”“轻松有思考”，不要照抄示例。`
+
+  const prompt = `你是一个中文内容编辑系统。任务：将用户提交的完整文段，按语义顺序拆成若干张可阅读、可发布的小红书图片。\n\n硬性规则：\n1. 图片正文必须完整保留用户原文，不得改写、删减、总结、替换原文句子。\n2. 你只能返回句子 ID 的分组、每页标题、少量导语/结束语。\n3. 标题不能直接截取正文开头，需概括本页原文。\n4. 每张内容卡尽量 120-280 个中文字符；过长语义块拆成连续的 2-4 张卡。\n5. 不要在语义强相关的句子中间强行断开；同一语义块的卡片必须连续。\n6. 所有句子 ID 必须且只能出现一次；若确实无法判断，也要按原顺序分配。\n7. 每张卡的 title 必须是你根据本页内容生成的“小标题”，控制在 6-14 个汉字；禁止直接复制原文开头，禁止使用省略号，禁止追加“· 2 / 第2页”等页码。\n8. 如果原文开头是“一楼的H1-1展区主要是……”这类句子，标题应概括为“展区里的模型信号”“未来会走向何处”这类短标题，而不是照搬正文。${publicationTask}\n\n用户背景：\n项目：${project.name || ''}\n活动：${project.eventName || ''}\n\n句子列表：\n${sentences.map(sentence => `${sentence.id}: ${sentence.text}`).join('\n')}\n\n只返回 JSON，不要解释。格式：\n{\n  "deckTitle": "整组图片标题",\n  "deckSubtitle": "一句封面副标题",\n  "semanticBlocks": [{"id":"B01","title":"语义块标题","summary":"块说明","sourceSentenceIds":["S01-01"],"estimatedCardCount":2}],\n  "cards": [{"blockId":"B01","pageRole":"block-start","title":"本页标题","addedLead":"可选短导语","addedEnding":"可选短结束语","sourceSentenceIds":["S01-01"]}],\n  "publication": {"title":"可直接发布的标题","body":"个性化口吻的正文","tags":"#相关标签 #真实标签","toneLabel":"实际采用的口吻"}\n}`
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -256,10 +294,10 @@ async function callOpenAICompatible(env: RuntimeEnv | undefined, project: Projec
     body: JSON.stringify({
       model,
       messages: [
-        { role: 'system', content: '你只输出合法 JSON。不要改写用户原文主体。title 必须是原创概括小标题，不能复制正文开头，不能包含省略号或页码。' },
+        { role: 'system', content: '你只输出合法 JSON。cards 的正文不得改写用户原文；publication 是独立的发布文案，可以在不编造事实的前提下重组表达。卡片 title 必须是原创概括小标题，不能复制正文开头，不能包含省略号或页码。' },
         { role: 'user', content: prompt },
       ],
-      temperature: 0.2,
+      temperature: 0.35,
       response_format: { type: 'json_object' },
     }),
   })
@@ -285,15 +323,44 @@ export async function analyzeSemanticProject(project: ProjectPayload, env?: Runt
 
   try {
     const plan = await callOpenAICompatible(env, project, sentences)
-    return { ok: true, mode: 'model', sourceSentences: sentences, ...normalizePlan(project, sentences, plan) }
+    if (!plan.publication?.body?.trim()) {
+      throw new Error('模型未返回可发布的精华版文案')
+    }
+    const normalized = normalizePlan(project, sentences, plan)
+    const publication = normalizePublication(project, plan)
+    return {
+      ok: true,
+      mode: 'model',
+      analysisRequestedMode: project.outputMode || 'card',
+      generatedModes: ['summary', 'card'] as const,
+      sourceSentences: sentences,
+      ...normalized,
+      title: publication.title,
+      summary: publication.body,
+      tags: publication.tags,
+      publicationTone: publication.publicationTone,
+      publicationCharacterCount: publication.publicationCharacterCount,
+      summaryGeneration: 'model',
+      summaryWasRewritten: [...originalText].length > SUMMARY_REWRITE_THRESHOLD,
+    }
   } catch (modelError) {
     const fallback = fallbackPlan(project, sentences)
+    const publication = fallbackPublication(project)
     return {
       ok: true,
       mode: 'local-fallback',
+      analysisRequestedMode: project.outputMode || 'card',
+      generatedModes: ['summary', 'card'] as const,
       warning: modelError instanceof Error ? modelError.message : '模型调用失败，已使用本地回退',
       sourceSentences: sentences,
       ...fallback,
+      title: publication.title,
+      summary: publication.body,
+      tags: publication.tags,
+      publicationTone: publication.publicationTone,
+      publicationCharacterCount: publication.publicationCharacterCount,
+      summaryGeneration: 'local-fallback',
+      summaryWasRewritten: false,
     }
   }
 }
