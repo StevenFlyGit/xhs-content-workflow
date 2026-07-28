@@ -5,7 +5,7 @@ import {
   ArchiveRestore, BookOpenCheck, Check, CheckCircle2, ChevronLeft, ChevronRight,
   CircleAlert, Download, Eye, FileArchive, FileText,
   History, LayoutDashboard, ListChecks, LoaderCircle, Menu,
-  MoreHorizontal, Palette, PanelRight, Plus, RefreshCw, Save, Search, Settings2,
+  Palette, PanelRight, Plus, Save, Settings2,
   Sparkles, Trash2, X,
 } from 'lucide-react'
 import { toBlob } from 'html-to-image'
@@ -44,11 +44,11 @@ type Card = {
   sourceSentenceIds?: string[]
 }
 type Version = { id: string; label: string; entity: string; at: string; snapshot?: unknown }
-type ExportRecord = { id: string; fileName: string; theme: ThemeId; chars: number; cards: number; at: string; storagePath?: string }
 type LocalWorkspace = {
   id: string; project: ProjectState; insights: Insight[]; cards: Card[]
   theme: ThemeId; density: Density; editorMode?: 'summary' | 'card'; updatedAt: string
   sourceSentences?: SourceSentence[]; analysisMode?: 'model' | 'local-fallback'
+  versions?: Version[]
 }
 
 type ProjectState = {
@@ -150,6 +150,35 @@ const initialCards: Card[] = [
   { eyebrow: 'SUMMARY', title: '从玩具走向工具', body: '真正的 Agent 产品，不是不断增加自主性，而是在自动执行与用户控制之间建立可持续的信任。' },
 ]
 
+const initialVersions: Version[] = []
+
+function normalizeVersions(value: unknown): Version[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap(item => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Partial<Version>
+    if (typeof record.id !== 'string' || typeof record.label !== 'string' || typeof record.entity !== 'string' || typeof record.at !== 'string') return []
+    return [{
+      id: record.id,
+      label: record.label,
+      entity: record.entity,
+      at: record.at,
+      snapshot: record.snapshot,
+    }]
+  })
+}
+
+function historyTimestamp() {
+  return new Date().toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
 function normalizeCard(card: Partial<Card> | undefined, index = 0): Card {
   return {
     eyebrow: typeof card?.eyebrow === 'string' && card.eyebrow.trim() ? card.eyebrow : `${String(index + 1).padStart(2, '0')} · 原文卡片`,
@@ -234,7 +263,7 @@ const navItems: { id: Step; label: string; icon: typeof LayoutDashboard; number?
   { id: 'input', label: '内容输入', icon: FileText, number: 1 },
   { id: 'analysis', label: '结构化解析', icon: ListChecks, number: 2 },
   { id: 'editor', label: '内容编辑器', icon: PanelRight, number: 3 },
-  { id: 'export', label: '导出与记录', icon: FileArchive, number: 4 },
+  { id: 'export', label: '内容导出', icon: FileArchive, number: 4 },
 ]
 
 function safeFileName(value: string) {
@@ -328,20 +357,13 @@ function Home() {
     id: 'sample-project', project: initialProject, insights: initialInsights, cards: initialCards,
     theme: 'research-light', density: 'standard', updatedAt: '刚刚',
     sourceSentences: initialSourceSentences, analysisMode: 'model',
+    versions: initialVersions,
   }])
   const [saveState, setSaveState] = useState<'saved' | 'saving'>('saved')
   const [analysisState, setAnalysisState] = useState<'idle' | 'loading' | 'done' | 'error'>('done')
   const [toast, setToast] = useState('')
   const [evidenceId, setEvidenceId] = useState<string | null>(null)
-  const [versions, setVersions] = useState<Version[]>([
-    { id: 'v3', label: '调整卡片结构', entity: '卡片稿', at: '今天 15:42' },
-    { id: 'v2', label: '确认核心观点', entity: '解析结果', at: '今天 15:18' },
-    { id: 'v1', label: '首次生成', entity: '精华正文', at: '今天 14:56' },
-  ])
-  const [exports, setExports] = useState<ExportRecord[]>([
-    { id: 'e1', fileName: 'AI-Agent-圆桌复盘-v2.zip', theme: 'structured-notes', chars: 486, cards: 6, at: '今天 16:04' },
-    { id: 'e0', fileName: 'AI-Agent-圆桌复盘-v1.zip', theme: 'research-light', chars: 512, cards: 7, at: '昨天 21:32' },
-  ])
+  const [versions, setVersions] = useState<Version[]>(initialVersions)
   const [mobileNav, setMobileNav] = useState(false)
   const [versionOpen, setVersionOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -362,7 +384,11 @@ function Home() {
       if (Array.isArray(saved) && saved.length) {
         const normalized = saved.map(workspace => {
           const sentences = workspace.sourceSentences?.length ? workspace.sourceSentences : buildSourceSentences(workspace.project.originalText)
-          const { editorMode: legacyEditorMode, ...workspaceWithoutLegacyMode } = workspace
+          const {
+            editorMode: legacyEditorMode,
+            exports: _removedExportRecords,
+            ...workspaceWithoutLegacyMode
+          } = workspace as LocalWorkspace & { exports?: unknown }
           return {
             ...workspaceWithoutLegacyMode,
             project: {
@@ -371,6 +397,7 @@ function Home() {
             },
             sourceSentences: sentences,
             insights: normalizeInsightSources(workspace.insights || [], sentences),
+            versions: normalizeVersions(workspace.versions),
           }
         })
         const first = normalized[0]
@@ -383,6 +410,7 @@ function Home() {
         setCards(normalizeCards(first.cards))
         setTheme(first.theme || 'research-light')
         setDensity(first.density || 'standard')
+        setVersions(first.versions || [])
         setAnalysisState(first.insights?.length ? 'done' : 'idle')
       } else if (Array.isArray(saved) && localStorage.getItem('xhs-compiler-workspaces')) {
         setWorkspaces([])
@@ -391,6 +419,7 @@ function Home() {
         setInsights([])
         setSourceSentences([])
         setCards([])
+        setVersions([])
         setAnalysisState('idle')
         setStep('projects')
       }
@@ -406,7 +435,18 @@ function Home() {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     setSaveState('saving')
     saveTimer.current = setTimeout(async () => {
-      const currentWorkspace: LocalWorkspace = { id: activeWorkspaceId, project, insights, sourceSentences, analysisMode, cards, theme, density, updatedAt: '刚刚' }
+      const currentWorkspace: LocalWorkspace = {
+        id: activeWorkspaceId,
+        project,
+        insights,
+        sourceSentences,
+        analysisMode,
+        cards,
+        theme,
+        density,
+        versions,
+        updatedAt: '刚刚',
+      }
       setWorkspaces(list => {
         const next = list.some(item => item.id === activeWorkspaceId)
           ? list.map(item => item.id === activeWorkspaceId ? currentWorkspace : item)
@@ -417,9 +457,32 @@ function Home() {
       setSaveState('saved')
     }, 700)
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
-  }, [project, insights, sourceSentences, analysisMode, cards, theme, density, activeWorkspaceId, storageReady])
+  }, [project, insights, sourceSentences, analysisMode, cards, theme, density, versions, activeWorkspaceId, storageReady])
 
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(''), 2600) }
+  function persistActiveVersions(nextVersions: Version[]) {
+    if (!activeWorkspaceId) return
+    const snapshot: LocalWorkspace = {
+      id: activeWorkspaceId,
+      project,
+      insights,
+      sourceSentences,
+      analysisMode,
+      cards,
+      theme,
+      density,
+      versions: nextVersions,
+      updatedAt: '刚刚',
+    }
+    setWorkspaces(list => {
+      const next = list.some(item => item.id === activeWorkspaceId)
+        ? list.map(item => item.id === activeWorkspaceId ? snapshot : item)
+        : [snapshot, ...list]
+      localStorage.setItem('xhs-compiler-workspaces', JSON.stringify(next))
+      return next
+    })
+  }
+
   function updateProject<K extends keyof ProjectState>(key: K, value: ProjectState[K]) {
     const invalidatesGeneration = key === 'name' || key === 'eventName' || key === 'eventType' || key === 'originalText'
     setProject(current => {
@@ -442,12 +505,24 @@ function Home() {
   }
 
   function createLocalProject() {
-    const current: LocalWorkspace = { id: activeWorkspaceId, project, insights, sourceSentences, analysisMode, cards, theme, density, updatedAt: '刚刚' }
+    const current: LocalWorkspace = {
+      id: activeWorkspaceId,
+      project,
+      insights,
+      sourceSentences,
+      analysisMode,
+      cards,
+      theme,
+      density,
+      versions,
+      updatedAt: '刚刚',
+    }
     const id = crypto.randomUUID()
     const nextNumber = workspaces.filter(item => item.project.name.startsWith('新内容项目')).length + 1
     const empty: LocalWorkspace = {
       id, project: createEmptyProject(`新内容项目 ${nextNumber}`), insights: [], cards: [], theme: 'research-light',
       density: 'standard', updatedAt: '刚刚创建', sourceSentences: [], analysisMode: 'local-fallback',
+      versions: [],
     }
     const preserved = activeWorkspaceId ? [current, ...workspaces.filter(item => item.id !== activeWorkspaceId)] : workspaces
     const next = [empty, ...preserved]
@@ -460,6 +535,7 @@ function Home() {
     setAnalysisMode('local-fallback')
     setAnalysisDirty(false)
     setCards(empty.cards)
+    setVersions([])
     setActiveCard(0)
     setTheme(empty.theme)
     setDensity(empty.density)
@@ -471,9 +547,24 @@ function Home() {
   }
 
   function openWorkspace(workspace: LocalWorkspace) {
-    const current: LocalWorkspace = { id: activeWorkspaceId, project, insights, sourceSentences, analysisMode, cards, theme, density, updatedAt: '刚刚' }
+    const current: LocalWorkspace = {
+      id: activeWorkspaceId,
+      project,
+      insights,
+      sourceSentences,
+      analysisMode,
+      cards,
+      theme,
+      density,
+      versions,
+      updatedAt: '刚刚',
+    }
     const nextSourceSentences = workspace.sourceSentences?.length ? workspace.sourceSentences : buildSourceSentences(workspace.project.originalText)
-    setWorkspaces(list => list.map(item => item.id === activeWorkspaceId ? current : item))
+    setWorkspaces(list => {
+      const next = list.map(item => item.id === activeWorkspaceId ? current : item)
+      localStorage.setItem('xhs-compiler-workspaces', JSON.stringify(next))
+      return next
+    })
     setActiveWorkspaceId(workspace.id)
     setProject({ ...workspace.project, outputMode: normalizeOutputMode(workspace.project.outputMode, workspace.editorMode) })
     setInsights(normalizeInsightSources(workspace.insights, nextSourceSentences))
@@ -483,6 +574,7 @@ function Home() {
     setCards(normalizeCards(workspace.cards))
     setTheme(workspace.theme)
     setDensity(workspace.density)
+    setVersions(normalizeVersions(workspace.versions))
     setActiveCard(0)
     setAnalysisState(workspace.insights.length ? 'done' : 'idle')
     setEvidenceId(null)
@@ -493,8 +585,22 @@ function Home() {
 
   function deleteWorkspace(workspace: LocalWorkspace) {
     const name = workspace.project.name || '未命名项目'
-    if (!window.confirm(`确定删除“${name}”吗？\n\n该项目在当前浏览器中的输入、解析结果和卡片数据都会被永久删除，且无法恢复。`)) return
-    const remaining = workspaces.filter(item => item.id !== workspace.id)
+    if (!window.confirm(`确定删除“${name}”吗？\n\n该项目在当前浏览器中的输入、解析结果、卡片和版本都会被永久删除，且无法恢复。`)) return
+    const current: LocalWorkspace = {
+      id: activeWorkspaceId,
+      project,
+      insights,
+      sourceSentences,
+      analysisMode,
+      cards,
+      theme,
+      density,
+      versions,
+      updatedAt: '刚刚',
+    }
+    const remaining = workspaces
+      .map(item => item.id === activeWorkspaceId ? current : item)
+      .filter(item => item.id !== workspace.id)
     setWorkspaces(remaining)
     localStorage.setItem('xhs-compiler-workspaces', JSON.stringify(remaining))
     if (workspace.id === activeWorkspaceId) {
@@ -509,6 +615,7 @@ function Home() {
         setCards(normalizeCards(next.cards))
         setTheme(next.theme || 'research-light')
         setDensity(next.density || 'standard')
+        setVersions(normalizeVersions(next.versions))
         setAnalysisState(next.insights?.length ? 'done' : 'idle')
       } else {
         setActiveWorkspaceId('')
@@ -516,6 +623,7 @@ function Home() {
         setInsights([])
         setSourceSentences([])
         setCards([])
+        setVersions([])
         setAnalysisState('idle')
       }
     }
@@ -613,8 +721,10 @@ function Home() {
 
   async function saveVersion(entity: 'analysis' | 'summary' | 'deck') {
     const snapshot = entity === 'analysis' ? insights : entity === 'summary' ? { title: project.title, summary: project.summary, tags: project.tags } : cards
-    const item = { id: crypto.randomUUID(), label: `手动保存 · ${entity === 'analysis' ? '解析结果' : entity === 'summary' ? '精华正文' : '卡片稿'}`, entity, at: '刚刚', snapshot }
-    setVersions(v => [item, ...v])
+    const item = { id: crypto.randomUUID(), label: `手动保存 · ${entity === 'analysis' ? '解析结果' : entity === 'summary' ? '精华正文' : '卡片稿'}`, entity, at: historyTimestamp(), snapshot }
+    const nextVersions = [item, ...versions]
+    setVersions(nextVersions)
+    persistActiveVersions(nextVersions)
     notify('已保存内容版本到当前浏览器')
   }
 
@@ -647,37 +757,9 @@ function Home() {
       const { blob } = await buildImagePackage(project, cards, theme, density, insights, paragraphs, sourceSentences)
       const fileName = `${safeFileName(project.name)}-${Date.now()}.zip`
       const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = fileName; a.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      setExports(v => [{ id: crypto.randomUUID(), fileName, theme, chars: publicationCount, cards: project.outputMode === 'card' ? cards.length : 0, at: '刚刚' }, ...v])
       notify(project.outputMode === 'summary' ? '精华版发布文案包已下载' : 'PNG 图片发布包已下载')
     } catch (error) {
       notify(error instanceof Error ? error.message : '图片生成失败，请重试')
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  async function redownload(record: ExportRecord) {
-    if (exporting) return
-    if (project.outputMode === 'summary' && !summaryReady) {
-      notify('当前原文尚未生成精华版，无法重新导出')
-      return
-    }
-    if (project.outputMode === 'card' && !cardsReady) {
-      notify('当前原文尚未生成完整卡片，无法重新导出')
-      return
-    }
-    if (project.outputMode === 'summary' && publicationOverLimit) {
-      notify(`精华版总字数必须控制在 ${SUMMARY_PUBLICATION_LIMIT} 字以内`)
-      return
-    }
-    setExporting(true)
-    notify(project.outputMode === 'summary' ? '正在重新整理发布文案…' : '正在重新生成高清图片…')
-    try {
-      const { blob } = await buildImagePackage(project, cards, record.theme || theme, density, insights, paragraphs, sourceSentences)
-      const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = record.fileName.replace(/\.(json|zip)$/i, '.zip'); a.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      notify(project.outputMode === 'summary' ? '已重新生成精华版文案包' : '已重新生成并下载 PNG 图片发布包')
-    } catch (error) {
-      notify(error instanceof Error ? error.message : '重新生成失败，请重试')
     } finally {
       setExporting(false)
     }
@@ -702,17 +784,16 @@ function Home() {
           <div className="crumb"><span>内容项目</span><ChevronRight size={14}/><b>{project.name || '未命名项目'}</b></div>
           <div className="top-actions">
             <span className={`save-indicator ${saveState}`}><span/>{saveState === 'saving' ? '保存中…' : '已自动保存'}</span>
-            <button className="icon-button" aria-label="搜索"><Search size={17}/></button>
             <button className="version-button" onClick={() => setVersionOpen(true)}><History size={16}/> 版本 <span>{versions.length}</span></button>
             <span className="test-mode-badge">本地测试模式</span>
           </div>
         </header>
 
-        {step === 'projects' && <ProjectsView workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} exports={exports} onOpen={openWorkspace} onDelete={deleteWorkspace} onCreate={createLocalProject}/>} 
+        {step === 'projects' && <ProjectsView workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} onOpen={openWorkspace} onDelete={deleteWorkspace} onCreate={createLocalProject}/>}
         {step === 'input' && <InputView project={project} update={updateProject} charCount={charCount} estimatedCards={estimatedCards} onAnalyze={() => runAnalysis()} notify={notify}/>}
         {step === 'analysis' && <ContentBlockReview state={analysisState} blocks={insights} setBlocks={setInsights} sourceSentences={sourceSentences} selectedId={evidenceId} setSelectedId={setEvidenceId} analysisMode={analysisMode} onRetry={() => runAnalysis()} onContinue={continueFromAnalysis} onVersion={() => saveVersion('analysis')} onStructureChange={() => setAnalysisDirty(true)} notify={notify}/>}
         {step === 'editor' && <EditorView mode={project.outputMode} setMode={(mode: 'summary' | 'card') => updateProject('outputMode', mode)} project={project} update={updateProject} summaryReady={summaryReady} cardsReady={cardsReady} generationLoading={analysisState === 'loading'} onGenerateSummary={() => runAnalysis({ stayInEditor: true })} publicationCount={publicationCount} publicationOverLimit={publicationOverLimit} cards={cards} setCards={setCards} theme={theme} setTheme={setTheme} density={density} setDensity={setDensity} activeCard={activeCard} setActiveCard={setActiveCard} onVersion={() => saveVersion(project.outputMode === 'summary' ? 'summary' : 'deck')} onExport={openExportReview} notify={notify}/>}
-        {step === 'export' && <ExportView project={project} theme={theme} cards={cards} publicationCount={publicationCount} publicationOverLimit={publicationOverLimit} exports={exports} onExport={exportPackage} onRedownload={redownload} exporting={exporting}/>}
+        {step === 'export' && <ExportView project={project} theme={theme} cards={cards} publicationCount={publicationCount} publicationOverLimit={publicationOverLimit} onExport={exportPackage} exporting={exporting}/>}
       </main>
 
       {toast && <div className="toast"><CheckCircle2 size={17}/>{toast}</div>}
@@ -725,9 +806,9 @@ function SectionTitle({ kicker, title, description, actions }: { kicker: string;
   return <div className="section-title"><div><span>{kicker}</span><h1>{title}</h1><p>{description}</p></div>{actions && <div className="section-actions">{actions}</div>}</div>
 }
 
-function ProjectsView({ workspaces, activeWorkspaceId, exports, onOpen, onDelete, onCreate }: any) {
+function ProjectsView({ workspaces, activeWorkspaceId, onOpen, onDelete, onCreate }: any) {
   const incomplete = workspaces.filter((workspace: LocalWorkspace) => !workspace.project.originalText.trim()).length
-  return <div className="page"><SectionTitle kicker="项目工作台" title="内容项目" description="每个项目拥有独立的输入、解析、卡片与导出空间，测试数据保存在当前浏览器。" actions={<button className="primary" onClick={onCreate}><Plus size={16}/> 新建内容项目</button>}/><div className="stats-row"><Stat label="内容项目" value={String(workspaces.length)} note="独立保存"/><Stat label="待完善" value={String(incomplete)} note="尚未输入原文" tone="warn"/><Stat label="已导出" value={String(exports.length)} note="最近 7 天"/></div><div className="panel"><div className="panel-head"><div><h2>全部项目</h2><p>点击项目进入其独立内容空间</p></div><span className="tag">当前共 {workspaces.length} 个</span></div><div className="project-table"><div className="table-head"><span>项目</span><span>模式</span><span>状态</span><span>更新时间</span><span>操作</span></div>{workspaces.length === 0 ? <div className="empty-projects"><FileText size={30}/><b>还没有内容项目</b><span>点击左侧“新建内容项目”开始创建</span></div> : workspaces.map((workspace: LocalWorkspace, index: number) => { const isEmpty = !workspace.project.originalText.trim(); const isActive = workspace.id === activeWorkspaceId; const outputMode = normalizeOutputMode(workspace.project.outputMode, workspace.editorMode); return <div key={workspace.id} className={`table-row ${isActive ? 'active' : ''}`}><button type="button" className="project-row-main" onClick={() => onOpen(workspace)}><div className="project-name"><div className={`file-icon ${index % 2 ? 'warm' : ''}`}><FileText size={18}/></div><span><b>{workspace.project.name || '未命名项目'} {isActive && <em>当前</em>}</b><small>{workspace.project.eventName || '等待填写活动信息'}</small></span></div><span className="tag">{outputMode === 'card' ? '完整卡片版' : '精华版'}</span><span className={`status ${isEmpty ? 'draft' : 'ready'}`}><i/>{isEmpty ? '待输入' : '编辑中'}</span><span>{workspace.updatedAt}</span></button><button type="button" className="delete-project" aria-label={`删除${workspace.project.name || '未命名项目'}`} title="删除项目" onClick={() => onDelete(workspace)}><Trash2 size={16}/></button></div> })}</div></div></div>
+  return <div className="page"><SectionTitle kicker="项目工作台" title="内容项目" description="每个项目拥有独立的输入、解析、卡片与导出空间，测试数据保存在当前浏览器。" actions={<button className="primary" onClick={onCreate}><Plus size={16}/> 新建内容项目</button>}/><div className="stats-row"><Stat label="内容项目" value={String(workspaces.length)} note="独立保存"/><Stat label="待完善" value={String(incomplete)} note="尚未输入原文" tone="warn"/></div><div className="panel"><div className="panel-head"><div><h2>全部项目</h2><p>点击项目进入其独立内容空间</p></div><span className="tag">当前共 {workspaces.length} 个</span></div><div className="project-table"><div className="table-head"><span>项目</span><span>模式</span><span>状态</span><span>更新时间</span><span>操作</span></div>{workspaces.length === 0 ? <div className="empty-projects"><FileText size={30}/><b>还没有内容项目</b><span>点击左侧“新建内容项目”开始创建</span></div> : workspaces.map((workspace: LocalWorkspace, index: number) => { const isEmpty = !workspace.project.originalText.trim(); const isActive = workspace.id === activeWorkspaceId; const outputMode = normalizeOutputMode(workspace.project.outputMode, workspace.editorMode); return <div key={workspace.id} className={`table-row ${isActive ? 'active' : ''}`}><button type="button" className="project-row-main" onClick={() => onOpen(workspace)}><div className="project-name"><div className={`file-icon ${index % 2 ? 'warm' : ''}`}><FileText size={18}/></div><span><b>{workspace.project.name || '未命名项目'} {isActive && <em>当前</em>}</b><small>{workspace.project.eventName || '等待填写活动信息'}</small></span></div><span className="tag">{outputMode === 'card' ? '完整卡片版' : '精华版'}</span><span className={`status ${isEmpty ? 'draft' : 'ready'}`}><i/>{isEmpty ? '待输入' : '编辑中'}</span><span>{workspace.updatedAt}</span></button><button type="button" className="delete-project" aria-label={`删除${workspace.project.name || '未命名项目'}`} title="删除项目" onClick={() => onDelete(workspace)}><Trash2 size={16}/></button></div> })}</div></div></div>
 }
 
 function Stat({ label, value, note, tone }: any) { return <div className="stat"><span>{label}</span><div><strong>{value}</strong><small className={tone}>{note}</small></div></div> }
@@ -803,12 +884,11 @@ function EditorView({ mode, setMode, project, update, summaryReady, cardsReady, 
             />
           : <div className="card-workbench">
               <section className="block-editor panel">
-                <div className="panel-head compact"><div><h2>卡片内容</h2><p>第 {activeCard + 1} 页 · 一个页面表达一个主题</p></div><button className="icon-button"><MoreHorizontal size={17}/></button></div>
+                <div className="panel-head compact"><div><h2>卡片内容</h2><p>第 {activeCard + 1} 页 · 一个页面表达一个主题</p></div></div>
                 <label><span>页面标识（仅编辑器显示）</span><input value={current.eyebrow} onChange={e => setCards((list: Card[]) => normalizeCards(list).map((x, i) => i === activeCard ? {...x, eyebrow: e.target.value} : x))}/></label>
                 <label><span>AI 小标题</span><textarea className="title-input" value={current.title} onChange={e => setCards((list: Card[]) => normalizeCards(list).map((x, i) => i === activeCard ? {...x, title: e.target.value} : x))}/></label>
                 <label><span>正文</span><textarea value={current.body} onChange={e => setCards((list: Card[]) => normalizeCards(list).map((x, i) => i === activeCard ? {...x, body: e.target.value} : x))}/></label>
                 {current.bullets && <label><span>列表项</span><textarea value={current.bullets.join('\n')} onChange={e => setCards((list: Card[]) => normalizeCards(list).map((x, i) => i === activeCard ? {...x, bullets: e.target.value.split('\n')} : x))}/></label>}
-                <div className="block-actions"><button><Plus size={14}/> 添加 Block</button><button className="danger"><Trash2 size={14}/> 删除本页</button></div>
               </section>
               <section className="preview-stage">
                 <div className="preview-toolbar"><div className="density-control"><span>密度</span>{(['relaxed','standard','compact'] as Density[]).map(d => <button className={density === d ? 'active' : ''} key={d} onClick={() => setDensity(d)}>{d === 'relaxed' ? '舒展' : d === 'standard' ? '标准' : '紧凑'}</button>)}</div><span className="preview-size">1080 × 1440 · 3:4</span></div>
@@ -849,12 +929,12 @@ function CardPreview({ card, theme, density, page, total }: any) {
   return <div className={`card-preview ${theme} ${density}`}><div className="card-accent"/><div className="card-head"><i>{String(page).padStart(2,'0')}</i></div><div className="card-body"><h2>{safeCard.title.split('\n').map((line: string, i: number) => <span key={i}>{line}</span>)}</h2>{safeCard.addedLead && <p className="added-text">{safeCard.addedLead}</p>}<p className="original-text">{safeCard.body}</p>{safeCard.bullets && <ul>{safeCard.bullets.map((b: string, i: number) => <li key={i}><i>{i + 1}</i><span>{b}</span></li>)}</ul>}{safeCard.addedEnding && <p className="added-text ending">{safeCard.addedEnding}</p>}</div><div className="card-foot"><span>原文保真 · 系统仅加标题/导语</span><b>{page} / {total}</b></div></div>
 }
 
-function ExportView({ project, theme, cards, publicationCount, publicationOverLimit, exports, onExport, onRedownload, exporting }: any) {
+function ExportView({ project, theme, cards, publicationCount, publicationOverLimit, onExport, exporting }: any) {
   const summaryMode = project.outputMode === 'summary'
   const disabled = exporting || (summaryMode && publicationOverLimit)
   const actionLabel = summaryMode ? '导出发布文案包' : '导出 PNG 图片包'
   return <div className="page">
-    <SectionTitle kicker="步骤 04 / 04" title="导出与记录" description={summaryMode ? '导出可直接粘贴到小红书发布页的标题、正文和标签。' : '将全部卡片生成 1080 × 1440 PNG 图片并打包下载。'} actions={<button className="primary" disabled={disabled} onClick={onExport}>{exporting ? <LoaderCircle className="spin" size={16}/> : <Download size={16}/>} {exporting ? '正在生成…' : actionLabel}</button>}/>
+    <SectionTitle kicker="步骤 04 / 04" title="内容导出" description={summaryMode ? '导出可直接粘贴到小红书发布页的标题、正文和标签。' : '将全部卡片生成 1080 × 1440 PNG 图片并打包下载。'} actions={<button className="primary" disabled={disabled} onClick={onExport}>{exporting ? <LoaderCircle className="spin" size={16}/> : <Download size={16}/>} {exporting ? '正在生成…' : actionLabel}</button>}/>
     {summaryMode && publicationOverLimit && <div className="export-limit-warning"><CircleAlert size={17}/><span><b>精华版暂时无法导出</b><small>当前共 {publicationCount} 字，超出发布限制 {publicationCount - SUMMARY_PUBLICATION_LIMIT} 字，请返回编辑器精简。</small></span></div>}
     <div className="export-layout">
       <div className="export-main">
@@ -868,10 +948,6 @@ function ExportView({ project, theme, cards, publicationCount, publicationOverLi
             {summaryMode ? <FileItem name="publish-ready.txt" meta={`合并成稿 · ${publicationCount} / ${SUMMARY_PUBLICATION_LIMIT} 字`}/> : <FileItem name="cards/*.png" meta={`${cards.length} 张 · 1080 × 1440`}/>}
             <FileItem name="source/" meta="原文与结构化数据"/>
           </div>
-        </div>
-        <div className="panel export-history">
-          <div className="panel-head"><div><h2>导出记录</h2><p>历史发布包与生成配置</p></div><button className="ghost"><RefreshCw size={14}/> 刷新</button></div>
-          <div className="history-list">{exports.map((record: ExportRecord) => <div key={record.id}><div className="archive-icon"><FileArchive size={18}/></div><span><b>{record.fileName}</b><small>{record.at} · {record.cards ? `${themes.find(t => t.id === record.theme)?.name} · ${record.cards} 张卡片` : '精华版文案'} · {record.chars} 字符</small></span><span className="status ready"><i/>成功</span><button className="secondary small" onClick={() => onRedownload(record)}><Download size={14}/> 再次下载</button></div>)}</div>
         </div>
       </div>
       <aside className="export-side">
