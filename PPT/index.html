@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>知页 · 小红书内容编译器产品路演</title>
+  <style>
+    :root{
+      --bg:#f4f0e7;--surface:#fffdf8;--ink:#15302d;--ink2:#415754;--muted:#7d8a86;
+      --line:#d9d4c9;--accent:#d9573c;--redsoft:#f6e3dc;--green:#28745d;
+      --greensoft:#dcebe5;--yellow:#fff1c9;--shadow:0 18px 44px rgba(21,48,45,.08);
+      --font:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC","Segoe UI",sans-serif;
+    }
+    *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden}
+    body{font-family:var(--font);color:var(--ink);background:#12201e}
+    .stage{position:fixed;inset:0;display:grid;place-items:center;background:
+      radial-gradient(circle at 15% 10%,rgba(217,87,60,.16),transparent 28%),
+      radial-gradient(circle at 85% 90%,rgba(40,116,93,.18),transparent 30%),#12201e}
+    .deck{position:relative;width:1600px;height:900px;overflow:hidden;transform-origin:center;background:var(--bg);box-shadow:0 30px 100px rgba(0,0,0,.36)}
+    .slide{position:absolute;inset:0;display:none;padding:64px 84px 58px;overflow:hidden;background:
+      linear-gradient(rgba(21,48,45,.025) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(21,48,45,.025) 1px,transparent 1px),var(--bg);background-size:44px 44px}
+    .slide.active{display:block;animation:enter .42s ease both}
+    @keyframes enter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    .top,.footer{position:absolute;left:84px;right:84px;display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:16px;letter-spacing:.06em}
+    .top{top:25px}.footer{bottom:20px}.brand{display:flex;align-items:center;gap:10px;color:var(--ink);font-weight:800}.logo{display:grid;place-items:center;width:29px;height:29px;border-radius:9px;background:var(--accent);color:white;font-style:normal;font-size:15px}
+    .section{font-weight:800;letter-spacing:.13em}.progress{position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(21,48,45,.08)}.progress>i{display:block;height:100%;background:var(--accent);transition:width .25s}
+    h1,h2,h3,p{margin:0}h1{font-size:72px;line-height:1.08;letter-spacing:-.045em}h2{font-size:50px;line-height:1.14;letter-spacing:-.035em}h3{font-size:26px;line-height:1.25}p{font-size:22px;line-height:1.5;color:var(--ink2)}
+    .accent{color:var(--accent)}.green{color:var(--green)}.eyebrow{margin-bottom:13px;color:var(--accent);font-size:17px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}.lead{margin-top:16px;font-size:26px}.header{margin-bottom:30px}
+    .card{border:1px solid var(--line);border-radius:25px;background:rgba(255,253,248,.94);box-shadow:var(--shadow)}.soft-red{background:var(--redsoft);border-color:#ecc6b8}.soft-green{background:var(--greensoft);border-color:#c5ddd3}
+    .chips{display:flex;gap:12px;flex-wrap:wrap}.chip{padding:10px 15px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.68);font-size:17px;font-weight:800}.chip:before{content:"";display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:var(--accent)}
+
+    /* cover */
+    .cover{display:grid;grid-template-columns:1.12fr .88fr;gap:60px;align-items:center;height:100%}.cover p{max-width:780px;margin:24px 0 32px;font-size:28px}.cover-meta{display:flex;align-items:center;gap:18px;margin-top:36px;color:var(--muted);font-size:17px}.cover-meta:before{content:"";width:72px;height:3px;background:var(--accent)}
+    .visual{position:relative;height:680px}.phone{position:absolute;right:65px;top:55px;width:338px;height:598px;overflow:hidden;border:10px solid var(--ink);border-radius:46px;background:white;box-shadow:0 30px 80px rgba(21,48,45,.2);transform:rotate(2deg)}.phone img,.mini img{width:100%;height:100%;object-fit:cover}.mini{position:absolute;width:250px;height:334px;overflow:hidden;border:8px solid white;border-radius:28px;box-shadow:var(--shadow)}.mini.a{left:0;top:32px;transform:rotate(-7deg)}.mini.b{left:16px;bottom:4px;transform:rotate(5deg)}.bubble{position:absolute;right:5px;top:12px;display:grid;place-items:center;width:148px;height:148px;border-radius:50%;background:var(--accent);color:white;text-align:center;font-size:18px;font-weight:900;line-height:1.35;transform:rotate(7deg)}
+
+    /* user */
+    .user-grid{display:grid;grid-template-columns:425px 1fr;gap:34px;height:645px}.persona{padding:32px}.avatar{display:grid;place-items:center;width:82px;height:82px;margin-bottom:22px;border-radius:23px;background:var(--ink);color:white;font-size:34px;font-weight:900}.persona h3{font-size:31px}.persona p{margin-top:12px;font-size:20px}.clean-list{list-style:none;padding:0;margin:24px 0 0;display:grid;gap:13px}.clean-list li{position:relative;padding-left:25px;font-size:19px;line-height:1.38}.clean-list li:before{content:"✓";position:absolute;left:0;color:var(--green);font-weight:900}
+    .pain-list{display:grid;grid-template-rows:repeat(4,1fr);gap:13px}.pain{display:grid;grid-template-columns:60px 1fr 170px;align-items:center;gap:18px;padding:17px 23px}.num{font-size:29px;font-weight:900;color:var(--accent)}.pain h3{margin-bottom:4px}.pain p{font-size:17px;line-height:1.35}.badge{justify-self:end;padding:8px 11px;border-radius:11px;background:#f1e9e1;color:#a54534;font-size:16px;font-weight:800}.badge.good{background:var(--greensoft);color:var(--green)}
+
+    /* compiler */
+    .compiler{display:grid;grid-template-columns:1fr 310px 1fr;gap:28px;align-items:center;height:520px}.sourcebox,.outputbox{height:465px;padding:27px}.quote{margin:22px 0;padding:18px;border-left:5px solid var(--accent);border-radius:12px;background:var(--redsoft);font-size:18px;line-height:1.45}.line{height:10px;margin:14px 0;border-radius:7px;background:#dedbd3}.line:nth-child(2n){width:84%}.line:nth-child(3n){width:68%}.core{position:relative;display:grid;place-items:center;width:310px;height:310px;border-radius:50%;background:var(--ink);color:white;text-align:center;box-shadow:var(--shadow)}.core strong{font-size:29px}.core span{display:block;margin-top:9px;color:#c0d1cd;font-size:17px;line-height:1.45}.outputbox{display:grid;grid-template-columns:1fr 1fr;gap:16px}.outmode{padding:21px;border-radius:18px;background:#f0ece4}.outmode b{font-size:23px}.outmode p{margin-top:10px;font-size:17px}.innovations{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-top:18px}.innovation{padding:15px 17px;border-left:4px solid var(--accent);background:rgba(255,255,255,.65)}.innovation b{display:block;font-size:18px}.innovation span{font-size:15px;color:var(--muted)}
+
+    /* workflow */
+    .workflow{display:grid;grid-template-columns:repeat(4,1fr);gap:17px}.step{position:relative;height:213px;padding:25px 23px}.step:after{content:"→";position:absolute;right:-21px;top:78px;z-index:3;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--accent);color:white;font-weight:900}.step:nth-child(4):after,.step:nth-child(8):after{display:none}.step small{color:var(--accent);font-weight:900;letter-spacing:.11em}.step h3{margin:21px 0 8px}.step p{font-size:17px;line-height:1.38}.promise{display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding:16px 23px;border-radius:17px;background:var(--ink);color:white}.promise b{font-size:20px}.promise span{color:#c2d2ce;font-size:16px}
+
+    /* modes and scenes */
+    .mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px}.mode{height:478px;padding:31px;display:flex;flex-direction:column}.mode-head{display:flex;justify-content:space-between;align-items:center}.letter{display:grid;place-items:center;width:52px;height:52px;border-radius:16px;background:var(--ink);color:white;font-size:23px;font-weight:900}.mode:nth-child(2) .letter{background:var(--accent)}.mode h3{font-size:34px}.bullets{list-style:none;padding:0;margin:20px 0;display:grid;gap:12px}.bullets li{position:relative;padding-left:20px;font-size:19px;line-height:1.4}.bullets li:before{content:"•";position:absolute;left:0;color:var(--accent);font-weight:900}.outcome{margin-top:auto;padding:15px 17px;border-radius:15px;background:#f0ece4}.outcome b{font-size:18px}.outcome span{display:block;margin-top:4px;color:var(--muted);font-size:15px}.caps{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-top:18px}.cap{padding:13px;text-align:center;border-radius:13px;background:var(--greensoft);color:var(--green);font-weight:800}
+    .scene-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:19px}.scene{height:495px;padding:27px 23px;display:flex;flex-direction:column}.icon{display:grid;place-items:center;width:58px;height:58px;border-radius:17px;background:var(--redsoft);font-size:27px}.scene h3{margin:21px 0 10px;font-size:28px}.scene>p{font-size:18px}.io{display:grid;gap:12px;margin-top:22px}.io div{padding:13px;border-radius:13px;background:#f0ece4}.io b{display:block;margin-bottom:3px;color:var(--accent);font-size:14px;letter-spacing:.08em}.io span{font-size:16px}.value{margin-top:auto;padding-top:18px;border-top:1px solid var(--line);color:var(--green);font-size:17px;font-weight:800}
+
+    /* demo */
+    .demo{display:grid;grid-template-columns:1.02fr .98fr;gap:33px;height:615px}.app{overflow:hidden;height:595px}.appbar{display:flex;justify-content:space-between;align-items:center;height:57px;padding:0 22px;background:var(--ink);color:white;font-weight:800}.appbody{display:grid;grid-template-columns:160px 1fr;height:538px;background:#f8f5ee}.sidebar{padding:22px 14px;border-right:1px solid var(--line)}.sidebar b{display:block;margin-bottom:17px;color:var(--muted);font-size:14px}.nav{padding:11px;margin:7px 0;border-radius:11px;color:var(--muted);font-size:14px}.nav.on{background:var(--redsoft);color:var(--accent);font-weight:800}.mainmock{padding:24px}.field{height:50px;margin-bottom:13px;padding:14px;border:1px solid var(--line);border-radius:11px;background:white;color:var(--muted);font-size:14px}.textarea{height:220px;padding:16px;border:1px solid var(--line);border-radius:11px;background:white}.fake{height:8px;margin:10px 0;border-radius:4px;background:#dedbd4}.fake:nth-child(2n){width:87%}.fake:nth-child(3n){width:70%}.mockbutton{float:right;margin-top:17px;padding:11px 17px;border-radius:11px;background:var(--accent);color:white;font-size:14px;font-weight:900}.demo-list{display:grid;grid-template-rows:repeat(4,1fr);gap:12px}.demo-step{display:grid;grid-template-columns:56px 1fr 70px;gap:15px;align-items:center;padding:16px 19px}.demo-step i{display:grid;place-items:center;width:47px;height:47px;border-radius:14px;background:var(--ink);color:white;font-style:normal;font-size:20px;font-weight:900}.demo-step h3{font-size:22px}.demo-step p{font-size:15px}.demo-step time{justify-self:end;color:var(--accent);font-weight:900}.demotip{margin-top:12px;padding:15px 17px;border-radius:15px;background:var(--greensoft);color:var(--green);font-size:16px;font-weight:800}
+
+    /* status */
+    .status{display:grid;grid-template-columns:1.13fr .87fr;gap:27px}.delivered,.validation{height:530px;padding:29px}.done{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:23px}.done div{display:flex;align-items:center;gap:10px;padding:15px;border-radius:14px;background:#f0ece4;font-size:16px;font-weight:800}.done div:before{content:"✓";display:grid;place-items:center;width:25px;height:25px;border-radius:50%;background:var(--green);color:white;font-size:13px}.metrics{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:22px}.metric{padding:17px;border-radius:15px;background:rgba(255,255,255,.5)}.metric strong{display:block;color:var(--green);font-size:31px}.metric span{font-size:14px}.note{margin-top:26px;padding:15px 17px;border-left:5px solid #e9b949;background:var(--yellow);color:#66531f;font-size:15px;line-height:1.4}
+
+    /* roadmap */
+    .roadmap{display:grid;grid-template-columns:repeat(4,1fr);gap:17px}.phase{position:relative;height:475px;padding:27px 23px}.phase.now{border:3px solid var(--accent)}.phase-tag{display:inline-block;padding:7px 10px;border-radius:9px;background:#eee9df;color:var(--muted);font-size:13px;font-weight:900;letter-spacing:.08em}.now .phase-tag{background:var(--accent);color:white}.phase h3{margin:24px 0 12px;font-size:27px}.phase p{font-size:17px}.phase ul{list-style:none;padding:0;margin:20px 0;display:grid;gap:9px}.phase li{font-size:15px;line-height:1.35;color:var(--ink2)}.phase li:before{content:"—";margin-right:7px;color:var(--accent)}.phase-bottom{position:absolute;left:23px;right:23px;bottom:23px;padding:12px;text-align:center;border-radius:12px;background:var(--greensoft);color:var(--green);font-size:15px;font-weight:900}
+
+    /* future */
+    .future{display:grid;grid-template-columns:1fr 1fr;gap:17px}.future-card{position:relative;min-height:243px;padding:23px 25px 19px 90px}.future-no{position:absolute;left:23px;top:23px;display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:var(--ink);color:white;font-weight:900}.future-card:nth-child(2) .future-no,.future-card:nth-child(4) .future-no{background:var(--accent)}.future-card h3{font-size:26px;margin-bottom:6px}.future-card>p{font-size:16px;color:var(--muted)}.future-card ul{list-style:none;padding:0;margin:13px 0 0;display:grid;gap:6px}.future-card li{position:relative;padding-left:16px;font-size:15px;line-height:1.35;color:var(--ink2)}.future-card li:before{content:"";position:absolute;left:0;top:.57em;width:7px;height:7px;border-radius:50%;background:var(--accent)}.future-value{margin-top:11px;color:var(--green);font-size:15px;font-weight:900}.foundation{display:grid;grid-template-columns:1fr 620px;gap:22px;align-items:center;margin-top:16px;padding:15px 21px;border-radius:17px;background:var(--ink);color:white}.foundation b{font-size:18px}.foundation span{color:#c5d5d1;font-size:14px}.guard{padding-left:20px;border-left:1px solid rgba(255,255,255,.22)}
+
+    /* growth */
+    .growth{display:grid;grid-template-columns:1.08fr .92fr;gap:28px;height:615px}.loop{position:relative;display:grid;place-items:center;height:590px}.ring{position:absolute;width:490px;height:490px;border:3px dashed rgba(217,87,60,.4);border-radius:50%}.center{z-index:2;display:grid;place-items:center;width:205px;height:205px;border-radius:50%;background:var(--ink);color:white;text-align:center;font-size:25px;font-weight:900}.node{position:absolute;width:180px;padding:16px;border:1px solid var(--line);border-radius:18px;background:var(--surface);text-align:center;box-shadow:var(--shadow)}.node b{display:block;font-size:18px}.node span{font-size:13px;color:var(--muted)}.n1{top:0;left:190px}.n2{top:170px;right:0}.n3{bottom:5px;right:95px}.n4{bottom:5px;left:65px}.n5{top:170px;left:0}.gtm{height:590px;padding:27px;display:flex;flex-direction:column}.gtm h3{font-size:29px;margin-bottom:18px}.gtm-lines{display:grid;gap:11px}.gtm-line{display:grid;grid-template-columns:78px 1fr;gap:13px;padding:14px;border-radius:13px;background:#f0ece4}.gtm-line b{color:var(--accent)}.gtm-line span{font-size:15px;line-height:1.4;color:var(--ink2)}.closing{margin-top:auto;padding:21px;border-radius:17px;background:var(--accent);color:white}.closing b{display:block;font-size:26px;margin-bottom:6px}.closing span{color:#ffe8df;font-size:16px;line-height:1.4}
+
+    .notes{display:none}.hud{position:fixed;right:20px;bottom:17px;z-index:30;display:flex;gap:7px;opacity:.24}.hud:hover{opacity:1}.hud button{width:39px;height:39px;border:1px solid rgba(255,255,255,.2);border-radius:11px;background:rgba(10,20,19,.76);color:white;cursor:pointer}.export .hud{display:none}
+    .drawer{position:fixed;left:50%;bottom:18px;z-index:40;width:min(980px,calc(100vw - 80px));padding:22px 26px;border-radius:20px;background:rgba(15,31,29,.97);color:white;box-shadow:0 24px 80px rgba(0,0,0,.4);transform:translate(-50%,calc(100% + 40px));transition:.25s}.drawer.open{transform:translate(-50%,0)}.drawer header{display:flex;justify-content:space-between;margin-bottom:10px}.drawer p{font-size:17px;color:#eef6f4}.overview{position:fixed;inset:0;z-index:50;display:none;grid-template-columns:repeat(3,1fr);gap:18px;padding:35px;overflow:auto;background:#101817}.overview.open{display:grid}.overview button{height:210px;padding:22px;border:2px solid #3d4c49;border-radius:18px;background:var(--bg);color:var(--ink);text-align:left;cursor:pointer}.overview button b{display:block;margin-bottom:12px;color:var(--accent);font-size:18px}.overview button span{font-size:25px;font-weight:900}
+    @media print{@page{size:13.333in 7.5in;margin:0}html,body{overflow:visible;background:white}.stage{position:static;display:block;background:white}.deck{width:1600px;height:auto;overflow:visible;transform:none!important;box-shadow:none}.slide,.slide.active{position:relative;display:block!important;width:1600px;height:900px;page-break-after:always;animation:none}.hud,.drawer,.overview{display:none!important}}
+  </style>
+</head>
+<body>
+<div class="stage"><main class="deck" id="deck">
+
+  <section class="slide active" data-title="封面" data-time="0:25">
+    <div class="top"><span class="brand"><i class="logo">知</i> 知页 · CONTENT COMPILER</span><span class="section">PRODUCT PITCH · 2026</span></div>
+    <div class="cover">
+      <div><div class="eyebrow">LONG-FORM → XIAOHONGSHU</div><h1>保留你的深度，<br><span class="accent">重新组织表达。</span></h1><p>把活动笔记、圆桌复盘和个人洞察，编译成可直接发布、值得收藏、能够复用的小红书内容资产。</p><div class="chips"><span class="chip">知识型创作者</span><span class="chip">长文结构化</span><span class="chip">正文 + 卡片</span><span class="chip">发布包导出</span></div><div class="cover-meta">产品宣讲 + 现场演示 · 约 8 分钟</div></div>
+      <div class="visual"><div class="mini a"><img src="assets/card-02.png" alt="知识卡片示例"></div><div class="mini b"><img src="assets/card-05.png" alt="总结卡片示例"></div><div class="phone"><img src="assets/card-01.png" alt="封面卡片示例"></div><div class="bubble">一篇长文<br>一套发布资产</div></div>
+    </div>
+    <div class="footer"><span>产品路演</span><span>01 / 11 · 0:25</span></div>
+    <aside class="notes">我们服务的不是没有内容的人，而是已经参加活动、已经写下深度笔记，却迟迟没有把它发布出去的人。知页把这些沉睡的知识，变成一套可以直接发布的内容资产。接下来用约八分钟讲清楚用户价值、核心工作流、未来规划和增长方式，并现场走一遍产品闭环。</aside>
+  </section>
+
+  <section class="slide" data-title="目标用户与痛点" data-time="0:50">
+    <div class="top"><span class="brand"><i class="logo">知</i> 用户</span><span class="section">WHO & WHY</span></div>
+    <div class="header"><div class="eyebrow">01 · TARGET USER</div><h2>用户不是缺内容，<span class="accent">而是卡在发布前的最后一公里。</span></h2></div>
+    <div class="user-grid">
+      <article class="card persona"><div class="avatar">创</div><h3>知识型创作者</h3><p>AI、科技、产品、创业与职业发展领域，持续参加行业活动并输出专业观点。</p><ul class="clean-list"><li>手里有 1,000–10,000 字完整笔记</li><li>希望保留个人判断与专业深度</li><li>不擅长压缩、分页和视觉设计</li><li>想建立长期影响力与内容资产</li></ul></article>
+      <div class="pain-list"><article class="card pain"><span class="num">01</span><div><h3>长文不能直接发</h3><p>正文有字符限制，必须手工删减或拆分。</p></div><span class="badge">反复删改</span></article><article class="card pain"><span class="num">02</span><div><h3>深度缺少表现力</h3><p>纯文本没有层级、强调、卡片结构和视觉节奏。</p></div><span class="badge">设计门槛</span></article><article class="card pain"><span class="num">03</span><div><h3>直接让 AI 改写会失真</h3><p>观点被泛化，甚至被改成同质化“小红书腔”。</p></div><span class="badge">信任成本</span></article><article class="card pain soft-green"><span class="num">04</span><div><h3>缺少可直接发布的资产包</h3><p>正文、标签、图片与源文件散落，准备过程繁琐。</p></div><span class="badge good">数小时 → 十几分钟</span></article></div>
+    </div>
+    <div class="footer"><span>从“有内容”到“能发布”</span><span>02 / 11 · 0:50</span></div>
+    <aside class="notes">核心用户的内容已经存在，问题出在发布准备。复盘太长，手工压缩很痛苦；纯文本缺少视觉表现；直接让大模型改写又容易失去原意。结果是最有价值的专业内容，要么躺在笔记软件里，要么被改成千篇一律的营销文案。知页解决的是这条最后一公里。</aside>
+  </section>
+
+  <section class="slide" data-title="价值与创新" data-time="0:55">
+    <div class="top"><span class="brand"><i class="logo">知</i> 价值</span><span class="section">THE COMPILER IDEA</span></div>
+    <div class="header"><div class="eyebrow">02 · PRODUCT VALUE</div><h2>核心不是“自动代写”，而是<span class="accent">内容编译。</span></h2><p class="lead">先理解、再结构化、后平台化表达；让原始观点与最终资产始终可追溯。</p></div>
+    <div class="compiler"><article class="card sourcebox"><div class="eyebrow">SOURCE · 原始长文</div><div class="quote">“真正有用的智能，不是把人从流程中拿掉，而是让人只在最有价值的地方出现。”</div><div class="line"></div><div class="line"></div><div class="line"></div><div class="line"></div><div class="line"></div></article><div class="core"><div><strong>内容中间层</strong><span>结构化解析<br>原文锚点<br>重要性排序<br>规则校验</span></div></div><article class="card outputbox"><div class="outmode"><b>精华版</b><p>在字符预算内保留 3–5 个高价值观点，生成正文、标题与标签。</p></div><div class="outmode"><b>卡片版</b><p>把完整内容转换为 Block，稳定分页并输出 3:4 中文知识卡片。</p></div></article></div>
+    <div class="innovations"><div class="innovation"><b>原文锚点</b><span>每个观点可回到来源段落</span></div><div class="innovation"><b>语义分页</b><span>不拆句、不孤立标题、平衡尾页</span></div><div class="innovation"><b>内容视觉解耦</b><span>模型不直接生成图片中的中文</span></div><div class="innovation"><b>可编辑工作流</b><span>用户在中间层纠错与重排</span></div></div>
+    <div class="footer"><span>不是重写器，而是编译器</span><span>03 / 11 · 0:55</span></div>
+    <aside class="notes">编译器是产品最重要的创意点。系统不把长文一次性扔给模型自由改写，而是先生成带原文证据的结构化中间层，再根据平台目标生成精华正文或知识卡片。这样既能保留个人表达，又能让分页、字符预算和渲染变得稳定。关键创新是原文锚点、语义分页、内容与视觉解耦，以及可编辑的中间工作流。</aside>
+  </section>
+
+  <section class="slide" data-title="完整工作流" data-time="0:50">
+    <div class="top"><span class="brand"><i class="logo">知</i> 工作流</span><span class="section">END-TO-END FLOW</span></div>
+    <div class="header"><div class="eyebrow">03 · WORKFLOW</div><h2>从一篇活动长文，到一套<span class="accent">可直接发布的资源包。</span></h2></div>
+    <div class="workflow"><article class="card step"><small>STEP 01</small><h3>输入长文</h3><p>活动信息、读者、语气、必须保留与不可公开内容。</p></article><article class="card step"><small>STEP 02</small><h3>预处理</h3><p>字符校验、段落编号、敏感检测与结构识别。</p></article><article class="card step"><small>STEP 03</small><h3>结构解析</h3><p>背景、观点、案例、感悟、行动与原文锚点。</p></article><article class="card step"><small>STEP 04</small><h3>用户确认</h3><p>删除错误、锁定术语、合并与重排观点。</p></article><article class="card step"><small>STEP 05</small><h3>选择模式</h3><p>快速传播用精华版；完整沉淀用卡片版。</p></article><article class="card step"><small>STEP 06</small><h3>生成编排</h3><p>标题、正文、Block、分页、重点层级与标签。</p></article><article class="card step"><small>STEP 07</small><h3>预览校验</h3><p>模板、编辑、字符、溢出、分页与字体检查。</p></article><article class="card step"><small>STEP 08</small><h3>导出发布包</h3><p>TXT、PNG、JSON、原文备份与 manifest。</p></article></div>
+    <div class="promise"><b>每一步都可见、可改、可追溯。</b><span>降低幻觉风险 · 保留人工控制 · 支持局部重做</span></div>
+    <div class="footer"><span>明确工作流，比一次性生成更可靠</span><span>04 / 11 · 0:50</span></div>
+    <aside class="notes">整个流程不是一个生成按钮，而是八个可控制的阶段。系统先校验并建立段落索引，再抽取结构化观点；用户确认后，才进入精华版或卡片版生成。最后通过字符、分页和渲染校验，导出正文、标签、图片和源文件。这种透明、可回退的流程，比一次性生成更值得信任。</aside>
+  </section>
+
+  <section class="slide" data-title="产品功能" data-time="0:50">
+    <div class="top"><span class="brand"><i class="logo">知</i> 功能</span><span class="section">TWO OUTPUT MODES</span></div>
+    <div class="header"><div class="eyebrow">04 · CAPABILITIES</div><h2>同一份内容，按目标生成<span class="accent">两种发布形态。</span></h2></div>
+    <div class="mode-grid"><article class="card mode"><div class="mode-head"><div><div class="eyebrow">FAST DISTRIBUTION</div><h3>精华版</h3></div><span class="letter">A</span></div><ul class="bullets"><li>3–5 个标题候选与一条清晰主线</li><li>约 820–900 字符正文，预算实时可见</li><li>Emoji、互动问题与 3–6 个话题标签</li><li>段落锁定、局部重写、一键压缩与版本恢复</li></ul><div class="outcome"><b>适合快速发布与观点传播</b><span>正文、标题和标签可分别编辑与复制</span></div></article><article class="card mode soft-red"><div class="mode-head"><div><div class="eyebrow">DEEP RETENTION</div><h3>完整卡片版</h3></div><span class="letter">B</span></div><ul class="bullets"><li>5–12 张 1080 × 1440 的 3:4 知识卡片</li><li>Heading / Paragraph / List / Quote / Callout</li><li>真实 DOM 高度测量，语义分页与尾页平衡</li><li>4 套模板切换、实时预览、批量 PNG 导出</li></ul><div class="outcome"><b>适合完整沉淀与收藏传播</b><span>中文字准确、视觉统一、无需依赖文生图</span></div></article></div>
+    <div class="caps"><div class="cap">原文追溯</div><div class="cap">敏感内容过滤</div><div class="cap">自动保存与版本</div><div class="cap">ZIP 发布包</div></div>
+    <div class="footer"><span>快传播 + 深沉淀</span><span>05 / 11 · 0:50</span></div>
+    <aside class="notes">精华版面向今天就要发，控制字符预算、生成标题正文标签，并支持局部重写；卡片版面向值得完整留下的深度内容，把观点变成结构化 Block，再生成五到十二张统一风格的三比四图片。两种模式共用同一份结构化中间层，用户无需重复整理。</aside>
+  </section>
+
+  <section class="slide" data-title="使用场景" data-time="0:40">
+    <div class="top"><span class="brand"><i class="logo">知</i> 场景</span><span class="section">WHERE IT WORKS</span></div>
+    <div class="header"><div class="eyebrow">05 · USE CASES</div><h2>让每一次参与，都能沉淀为<span class="accent">可传播的专业表达。</span></h2></div>
+    <div class="scene-grid"><article class="card scene"><div class="icon">🎤</div><h3>Conference</h3><p>信息密度高，需要抓出主线与认知变化。</p><div class="io"><div><b>INPUT</b><span>听会笔记 / 演讲摘要</span></div><div><b>OUTPUT</b><span>精华正文 + 观点卡片</span></div></div><div class="value">从“会议流水账”到“判断框架”</div></article><article class="card scene"><div class="icon">◌</div><h3>Roundtable</h3><p>多人观点交错，需要聚类、去重并保留引用。</p><div class="io"><div><b>INPUT</b><span>圆桌记录 / 个人复盘</span></div><div><b>OUTPUT</b><span>核心共识 + 分歧 + 感悟</span></div></div><div class="value">从“多人讨论”到“清晰观点”</div></article><article class="card scene"><div class="icon">✦</div><h3>Workshop</h3><p>过程与方法并重，需要转成可收藏的行动清单。</p><div class="io"><div><b>INPUT</b><span>操作笔记 / 方法模板</span></div><div><b>OUTPUT</b><span>步骤卡片 + 总结页</span></div></div><div class="value">从“一次学习”到“复用手册”</div></article><article class="card scene"><div class="icon">☕</div><h3>Coffee Chat</h3><p>感受强、内容零散，需要保护隐私并整理故事线。</p><div class="io"><div><b>INPUT</b><span>零散记录 / 个人洞察</span></div><div><b>OUTPUT</b><span>故事化正文 + 行动建议</span></div></div><div class="value">从“私密感悟”到“安全分享”</div></article></div>
+    <div class="footer"><span>会议 · 圆桌 · 工作坊 · 深度交流</span><span>06 / 11 · 0:40</span></div>
+    <aside class="notes">四类场景对应四种难题：大会信息太多，要找主线；圆桌多人观点交错，要聚类去重；工作坊强调步骤，要变成行动清单；Coffee Chat 更个人化，还要过滤不可公开信息。只要用户手里有完整笔记，就能转成结构清楚、适合传播的内容。</aside>
+  </section>
+
+  <section class="slide" data-title="90秒产品演示" data-time="1:30">
+    <div class="top"><span class="brand"><i class="logo">知</i> 演示</span><span class="section">LIVE DEMO · 90 SEC</span></div>
+    <div class="header"><div class="eyebrow">06 · DEMO</div><h2>现场演示：<span class="accent">一篇长文，四个动作。</span></h2></div>
+    <div class="demo"><article class="card app"><div class="appbar"><span>知页 · 内容编译器</span><span>● 已自动保存</span></div><div class="appbody"><aside class="sidebar"><b>编译流程</b><div class="nav on">01 输入内容</div><div class="nav">02 结构解析</div><div class="nav">03 卡片编排</div><div class="nav">04 检查导出</div></aside><div class="mainmock"><div class="field">AI Agent 产品化圆桌</div><div class="textarea"><div class="fake"></div><div class="fake"></div><div class="fake"></div><div class="fake"></div><div class="fake"></div><div class="fake"></div><div class="fake"></div><div class="fake"></div></div><span class="mockbutton">开始结构化解析 →</span></div></div></article><div><div class="demo-list"><article class="card demo-step"><i>1</i><div><h3>填入示例长文</h3><p>活动信息、字符计数、输出模式与隐私约束。</p></div><time>15s</time></article><article class="card demo-step"><i>2</i><div><h3>确认结构化观点</h3><p>点开观点，回到对应原文段落，强调可追溯。</p></div><time>25s</time></article><article class="card demo-step"><i>3</i><div><h3>切换卡片与模板</h3><p>展示 5–12 页规划、实时预览和四套模板。</p></div><time>30s</time></article><article class="card demo-step"><i>4</i><div><h3>检查并导出 ZIP</h3><p>打开正文、标签、PNG、JSON 与原文备份。</p></div><time>20s</time></article></div><div class="demotip">演示原则：只证明“输入 → 理解 → 编排 → 导出”闭环，不逐项讲设置。</div></div></div>
+    <div class="footer"><span>本页可作为现场故障时的备用讲解</span><span>07 / 11 · 1:30</span></div>
+    <aside class="notes">演示时填入内置的 AI Agent 圆桌示例，强调输入还包含目标读者、必须保留和不可公开内容。第二步点击解析，选一条观点展示原文锚点。第三步进入卡片模式，切换两套模板。最后展示 ZIP 中的正文、标签、PNG、结构化 JSON 和原文备份。全程控制在九十秒。</aside>
+  </section>
+
+  <section class="slide" data-title="阶段成果与验证" data-time="0:40">
+    <div class="top"><span class="brand"><i class="logo">知</i> 进展</span><span class="section">MVP STATUS</span></div>
+    <div class="header"><div class="eyebrow">07 · PHASE 1</div><h2>第一阶段已经完成：<span class="accent">可运行的内容编译器 MVP。</span></h2></div>
+    <div class="status"><article class="card delivered"><div class="eyebrow">DELIVERED</div><h3>核心闭环已具备</h3><div class="done"><div>项目与自动保存</div><div>最多 10,000 字输入</div><div>结构化解析与锚点</div><div>可编辑分析结果</div><div>精华版与字符预算</div><div>卡片 Block 与分页</div><div>4 套模板与预览</div><div>1080×1440 PNG</div><div>ZIP 发布包</div><div>版本快照与持久化</div></div></article><article class="card validation soft-green"><div class="eyebrow">VALIDATION TARGETS</div><h3>下一步验证的不是“能不能做”，而是“用户会不会持续用”。</h3><div class="metrics"><div class="metric"><strong>&lt; 60s</strong><span>首版结果生成</span></div><div class="metric"><strong>&lt; 10m</strong><span>平均人工修改</span></div><div class="metric"><strong>&gt; 60%</strong><span>完成导出率</span></div><div class="metric"><strong>≥ 4/5</strong><span>保留原意满意度</span></div></div><div class="note"><b>说明：</b>以上是验证目标，不是已经取得的运营数据。当前重点是用真实创作者样本验证留存、导出和实际发布。</div></article></div>
+    <div class="footer"><span>从功能完成，进入需求验证</span><span>08 / 11 · 0:40</span></div>
+    <aside class="notes">当前已经有可运行的第一阶段 MVP，输入、解析、两种输出、四套模板、实时预览和 ZIP 导出形成完整闭环。下一步不是继续堆功能，而是验证真实行为：能否一分钟内拿到首版，人工修改能否压到十分钟以内，导出率能否超过六成，以及用户是否认可保留原意。</aside>
+  </section>
+
+  <section class="slide" data-title="产品路线图" data-time="0:35">
+    <div class="top"><span class="brand"><i class="logo">知</i> 路线图</span><span class="section">ROADMAP</span></div>
+    <div class="header"><div class="eyebrow">08 · PRODUCT ROADMAP</div><h2>从内容编译器，逐步走向<span class="accent">创作者内容运营系统。</span></h2></div>
+    <div class="roadmap"><article class="card phase now"><span class="phase-tag">PHASE 1 · NOW</span><h3>内容编译</h3><p>验证长文到正文 / 卡片的核心价值。</p><ul><li>结构化解析与原文锚点</li><li>精华版 + 完整卡片版</li><li>模板、预览、校验、导出</li></ul><div class="phase-bottom">产出一套可发布资产</div></article><article class="card phase"><span class="phase-tag">PHASE 2</span><h3>视觉增强</h3><p>从“排得好”升级到“有品牌辨识度”。</p><ul><li>模板化 / AI 封面</li><li>现场照片增强与拼贴</li><li>个人品牌主题与混合模式</li><li>封面候选与视觉 A/B</li></ul><div class="phase-bottom">形成个人视觉资产</div></article><article class="card phase"><span class="phase-tag">PHASE 3</span><h3>发布闭环</h3><p>保留人工确认，减少重复操作。</p><ul><li>本地发布 Agent</li><li>定时、队列与失败恢复</li><li>多账号与状态记录</li><li>发布接口适配器</li></ul><div class="phase-bottom">缩短从导出到上线</div></article><article class="card phase"><span class="phase-tag">PHASE 4</span><h3>增长与经营</h3><p>让内容从一次性发布变成可度量资产。</p><ul><li>内容日历与历史复用</li><li>多平台适配与数据回收</li><li>标题 / 封面 / 内容 A/B</li><li>团队协作与订阅收费</li></ul><div class="phase-bottom">形成内容增长飞轮</div></article></div>
+    <div class="footer"><span>内容 → 视觉 → 发布 → 经营</span><span>09 / 11 · 0:35</span></div>
+    <aside class="notes">路线图先把最难、最有差异化的内容编译做稳定，再向外扩展。第二阶段增强封面、照片和个人品牌模板；第三阶段补发布与定时能力，但保留人工确认；第四阶段再做数据回收、多平台、历史复用和团队能力。每个阶段扩大闭环，但不会过早把资源耗在平台自动化上。</aside>
+  </section>
+
+  <section class="slide" data-title="下一阶段能力规划" data-time="0:45">
+    <div class="top"><span class="brand"><i class="logo">知</i> 未来</span><span class="section">NEXT CAPABILITIES</span></div>
+    <div class="header"><div class="eyebrow">09 · FUTURE PLAN</div><h2>从图文生产，走向<span class="accent">全媒体内容自动化。</span></h2><p class="lead">复用同一套内容中间层，依次扩展视觉资产、发布适配器与视频生产能力。</p></div>
+    <div class="future"><article class="card future-card"><span class="future-no">01</span><h3>模板扩展与自定义</h3><p>让专业排版拥有个人与团队辨识度。</p><ul><li>增加封面、正文、总结页等更多模板</li><li>开放品牌色、字体、署名、水印与版式配置</li><li>支持保存个人品牌模板与团队模板</li></ul><div class="future-value">价值：同一内容，快速形成多种视觉表达。</div></article><article class="card future-card soft-red"><span class="future-no">02</span><h3>内容驱动的封面与配图</h3><p>让图片真正服务于观点，而不是随机装饰。</p><ul><li>根据核心观点生成封面与概念配图</li><li>上传现场图片后自动裁剪、调色、拼贴与渲染</li><li>识别文字安全区，统一封面、配图和卡片风格</li></ul><div class="future-value">价值：升级为完整图文资产生产流程。</div></article><article class="card future-card soft-green"><span class="future-no">03</span><h3>自动发布流程</h3><p>减少从“已生成”到“已上线”的重复操作。</p><ul><li>参考 RedBookC，以 Playwright 驱动本地浏览器</li><li>支持发布队列、定时、失败恢复与结果记录</li><li>发布前保留人工确认，登录态保存在用户本地</li></ul><div class="future-value">价值：把导出发布包升级为可控发布闭环。</div></article><article class="card future-card"><span class="future-no">04</span><h3>视频生成与自动分发</h3><p>让一篇深度内容同时覆盖图文和短视频。</p><ul><li>从标题、观点与卡片生成分镜和口播脚本</li><li>合成字幕、配图、转场、配音与背景音乐</li><li>适配小红书短视频并接入自动发布流程</li></ul><div class="future-value">价值：一次内容生产，多种媒介复用与分发。</div></article></div>
+    <div class="foundation"><div><b>共享基础：结构化内容中间层</b><br><span>原文锚点、观点层级、敏感信息与品牌配置持续复用</span></div><div class="guard"><b>发布原则</b><br><span>保留人工确认 · 不绕过平台规则 · 账号 Cookie 不上传云端</span></div></div>
+    <div class="footer"><span>模板 → 配图 → 发布 → 视频</span><span>10 / 11 · 0:45</span></div>
+    <aside class="notes">下一阶段有四项：丰富图片模板并开放品牌自定义；根据观点生成封面和配图，同时自动处理现场照片；参考 RedBookC，用 Playwright 驱动用户本地浏览器完成可控发布；最后把同一套结构化内容转成分镜、口播、字幕和短视频，再接入发布流程。所有能力都复用现有内容中间层。</aside>
+  </section>
+
+  <section class="slide" data-title="推广与结语" data-time="0:40">
+    <div class="top"><span class="brand"><i class="logo">知</i> 增长</span><span class="section">GO-TO-MARKET</span></div>
+    <div class="header"><div class="eyebrow">10 · GROWTH</div><h2>最好的宣传素材，就是<span class="accent">产品生成的内容本身。</span></h2></div>
+    <div class="growth"><div class="loop"><div class="ring"></div><div class="center">创作者<br>内容飞轮</div><div class="node n1"><b>活动后 24h</b><span>产出高质量复盘</span></div><div class="node n2"><b>带产品标识</b><span>卡片自然曝光</span></div><div class="node n3"><b>读者收藏分享</b><span>触达同类创作者</span></div><div class="node n4"><b>模板复用</b><span>降低第二次使用成本</span></div><div class="node n5"><b>活动合作</b><span>主办方分发内容包</span></div></div><article class="card gtm"><h3>首批增长打法：30 / 60 / 90 天</h3><div class="gtm-lines"><div class="gtm-line"><b>0–30 天</b><span>邀请 20–30 位 AI / 产品创作者共创；每人完成 3 篇真实发布，建立案例库。</span></div><div class="gtm-line"><b>31–60 天</b><span>与 AI 社区、Meetup、Workshop 主办方合作，提供“会后内容包”与专属模板。</span></div><div class="gtm-line"><b>61–90 天</b><span>上线模板画廊、案例拆解、邀请返利和限量 Pro；用导出与复用率筛选高意向用户。</span></div></div><div class="closing"><b>让每一次参与，都变成一次被看见的专业表达。</b><span>下一步：招募首批共创用户，用真实发布验证留存、口碑与付费意愿。</span></div></article></div>
+    <div class="footer"><span>Seed creators → Community → Product-led growth</span><span>11 / 11 · 0:40</span></div>
+    <aside class="notes">推广不从大规模投放开始，而从二十到三十位高频参加活动的种子创作者开始。产品生成的卡片本身就是传播载体。随后与 AI 社区和活动主办方合作，把会后内容包变成标准服务，再用模板画廊、案例拆解和邀请机制放大口碑。下一步是招募首批共创用户，用真实发布验证留存与付费。</aside>
+  </section>
+
+  <div class="progress"><i id="bar"></i></div>
+</main></div>
+
+<div class="hud"><button id="prev">←</button><button id="next">→</button><button id="notes">N</button><button id="all">O</button><button id="full">F</button></div>
+<aside class="drawer" id="drawer"><header><b id="noteTitle">演讲备注</b><span id="noteTime"></span></header><p id="noteText"></p></aside>
+<div class="overview" id="overview"></div>
+<script>
+(()=>{if(new URLSearchParams(location.search).has("export"))document.body.classList.add("export");
+const slides=[...document.querySelectorAll("#deck>.slide")],bar=document.getElementById("bar"),drawer=document.getElementById("drawer"),overview=document.getElementById("overview");let i=Math.max(0,Math.min(slides.length-1,(+location.hash.replace("#/","")||1)-1));
+function fit(){if(!matchMedia("print").matches)document.getElementById("deck").style.transform=`scale(${Math.min(innerWidth/1600,innerHeight/900)})`}
+function render(){slides.forEach((s,n)=>s.classList.toggle("active",n===i));bar.style.width=`${(i+1)/slides.length*100}%`;history.replaceState(null,"",`${location.pathname}${location.search}#/${i+1}`);let s=slides[i];noteTitle.textContent=`${String(i+1).padStart(2,"0")} · ${s.dataset.title}`;noteTime.textContent=`建议用时 ${s.dataset.time}`;noteText.textContent=s.querySelector(".notes").textContent.trim();[...overview.children].forEach((b,n)=>b.style.borderColor=n===i?"var(--accent)":"#3d4c49")}
+function go(n){i=Math.max(0,Math.min(slides.length-1,n));render()}function notes(){drawer.classList.toggle("open")}function all(){overview.classList.toggle("open")}
+slides.forEach((s,n)=>{let b=document.createElement("button");b.innerHTML=`<b>${String(n+1).padStart(2,"0")} / ${slides.length}</b><span>${s.dataset.title}</span>`;b.onclick=()=>{go(n);overview.classList.remove("open")};overview.appendChild(b)});
+prev.onclick=()=>go(i-1);next.onclick=()=>go(i+1);document.getElementById("notes").onclick=notes;document.getElementById("all").onclick=all;full.onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
+addEventListener("keydown",e=>{if(["ArrowRight","PageDown"," "].includes(e.key)){e.preventDefault();go(i+1)}if(["ArrowLeft","PageUp"].includes(e.key)){e.preventDefault();go(i-1)}if(e.key==="Home")go(0);if(e.key==="End")go(slides.length-1);if(["n","s"].includes(e.key.toLowerCase()))notes();if(e.key.toLowerCase()==="o")all();if(e.key.toLowerCase()==="f")document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();if(e.key==="Escape"){drawer.classList.remove("open");overview.classList.remove("open")}});
+addEventListener("resize",fit);fit();render()})();
+</script>
+</body>
+</html>
