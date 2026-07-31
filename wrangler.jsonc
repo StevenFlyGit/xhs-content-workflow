@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ottermind-vibecoding-website-template",
+  "name": "xhs-content-workflow",
   "compatibility_date": "2026-06-17",
   "compatibility_flags": [
     "nodejs_compat",
