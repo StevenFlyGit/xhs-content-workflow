@@ -30,6 +30,7 @@ export const Route = createFileRoute('/')({ component: Home })
 
 type Step = 'projects' | 'input' | 'analysis' | 'editor' | 'export'
 type Density = 'relaxed' | 'standard' | 'compact'
+type CardLayoutStatus = { overflow: boolean; utilization: number; horizontalOverflow: boolean; verticalOverflow: boolean }
 type ThemeId = 'research-light' | 'ai-dark' | 'warm-reflection' | 'structured-notes'
 type Insight = ContentBlock
 type Card = {
@@ -80,6 +81,12 @@ type SemanticApiResponse = {
   sourceSentences?: SourceSentence[]
   semanticBlocks?: Array<{ id: string; title: string; summary?: string; sourceSentenceIds: string[]; estimatedCardCount?: number }>
 }
+
+const densityOptions: Array<{ id: Density; label: string; description: string }> = [
+  { id: 'relaxed', label: '舒展', description: '稍大字号与行距，适合文字较少的页面' },
+  { id: 'standard', label: '标准', description: '均衡留白与承载量，适合大多数页面' },
+  { id: 'compact', label: '紧凑', description: '小幅压缩间距，提升单页内容容量' },
+]
 
 const analyzeSemanticCards = createServerFn({ method: 'POST' })
   .validator((data: ProjectState) => data)
@@ -848,11 +855,85 @@ function InputView({ project, update, charCount, estimatedCards, onAnalyze, noti
 
 function Metric({ label, value, note, ok }: any) { return <div className="metric"><span>{label}</span><strong>{value}</strong><small className={ok === false ? 'bad' : ''}>{ok === true && <CheckCircle2 size={12}/>} {note}</small></div> }
 
+function measureCardLayout(node: HTMLElement): CardLayoutStatus {
+  const body = node.querySelector<HTMLElement>('.card-body')
+  const head = node.querySelector<HTMLElement>('.card-head')
+  const foot = node.querySelector<HTMLElement>('.card-foot')
+  if (!body || !head || !foot) return { overflow: false, utilization: 0, horizontalOverflow: false, verticalOverflow: false }
+
+  const nodeRect = node.getBoundingClientRect()
+  const bodyRect = body.getBoundingClientRect()
+  const styles = window.getComputedStyle(node)
+  const bodyStyles = window.getComputedStyle(body)
+  const paddingTop = Number.parseFloat(styles.paddingTop) || 0
+  const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0
+  const contentStart = Number.parseFloat(bodyStyles.marginTop) || 0
+  const topLimit = nodeRect.top + paddingTop + head.getBoundingClientRect().height + contentStart
+  const bottomLimit = nodeRect.bottom - paddingBottom - foot.getBoundingClientRect().height
+  const availableHeight = Math.max(1, bottomLimit - topLimit)
+  const usedHeight = Math.max(bodyRect.height, body.scrollHeight)
+  const utilization = Math.max(0, Math.round((usedHeight / availableHeight) * 100))
+  const verticalOverflow = usedHeight > availableHeight + 1
+    || bodyRect.top < topLimit - 1
+    || bodyRect.bottom > bottomLimit + 1
+    || node.scrollHeight > node.clientHeight + 1
+  const horizontalOverflow = body.scrollWidth > body.clientWidth + 1
+    || node.scrollWidth > node.clientWidth + 1
+  const overflow = verticalOverflow || horizontalOverflow
+
+  return { overflow, utilization, horizontalOverflow, verticalOverflow }
+}
+
 function EditorView({ mode, setMode, project, update, summaryReady, cardsReady, generationLoading, onGenerateSummary, publicationCount, publicationOverLimit, cards, setCards, theme, setTheme, density, setDensity, activeCard, setActiveCard, onVersion, onExport, notify }: any) {
   const safeCards = normalizeCards(cards)
   const current = normalizeCard(safeCards[activeCard], activeCard)
   const hasCards = cardsReady && safeCards.length > 0
   const contentReady = mode === 'summary' ? summaryReady : hasCards
+  const validationHostRef = useRef<HTMLDivElement>(null)
+  const [cardLayouts, setCardLayouts] = useState<CardLayoutStatus[]>([])
+
+  useEffect(() => {
+    if (!hasCards) {
+      setCardLayouts([])
+      return
+    }
+
+    let cancelled = false
+    let frame = 0
+    let settleTimer = 0
+    const measure = () => {
+      if (cancelled) return
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const nodes = Array.from(validationHostRef.current?.querySelectorAll<HTMLElement>('.card-preview') || [])
+        const next = nodes.map(measureCardLayout)
+        setCardLayouts(previous => previous.length === next.length && previous.every((item, index) => item.overflow === next[index]?.overflow && item.utilization === next[index]?.utilization && item.horizontalOverflow === next[index]?.horizontalOverflow && item.verticalOverflow === next[index]?.verticalOverflow) ? previous : next)
+      })
+    }
+
+    measure()
+    settleTimer = window.setTimeout(measure, 240)
+    document.fonts?.ready.then(measure)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    if (validationHostRef.current) observer?.observe(validationHostRef.current)
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
+      window.clearTimeout(settleTimer)
+      observer?.disconnect()
+    }
+  }, [cards, density, hasCards, theme])
+
+  const layoutChecking = hasCards && cardLayouts.length !== safeCards.length
+  const overflowCount = cardLayouts.filter(item => item.overflow).length
+  const overflowSummary = cardLayouts.flatMap((item, index) => {
+    if (!item.overflow) return []
+    const direction = item.horizontalOverflow && item.verticalOverflow ? '横向及纵向' : item.horizontalOverflow ? '横向' : '纵向'
+    return [`第 ${index + 1} 页${direction}溢出`]
+  }).join('；')
+  const currentLayout = cardLayouts[activeCard]
+  const currentOverflowLabel = currentLayout?.horizontalOverflow && currentLayout?.verticalOverflow ? '当前页横向及纵向溢出' : currentLayout?.horizontalOverflow ? '当前页横向溢出' : '当前页纵向溢出'
+  const cardExportBlocked = mode === 'card' && (layoutChecking || overflowCount > 0)
   return (
     <div className="page editor-page">
       <SectionTitle
@@ -861,7 +942,7 @@ function EditorView({ mode, setMode, project, update, summaryReady, cardsReady, 
         description="内容与视觉独立编辑；一次解析会同时准备精华文案与完整卡片。"
         actions={<>
           <button className="secondary" disabled={!contentReady} onClick={onVersion}><Save size={16}/> 保存版本</button>
-          <button className="primary" disabled={!contentReady} onClick={onExport}>导出检查 <ChevronRight size={16}/></button>
+          <button className="primary" disabled={!contentReady || cardExportBlocked} title={overflowCount > 0 ? `${overflowSummary}，请调整内容或密度` : layoutChecking ? '正在校验卡片排版' : undefined} onClick={onExport}>导出检查 <ChevronRight size={16}/></button>
         </>}
       />
       <div className="editor-tabs">
@@ -887,19 +968,20 @@ function EditorView({ mode, setMode, project, update, summaryReady, cardsReady, 
                 <div className="panel-head compact"><div><h2>卡片内容</h2><p>第 {activeCard + 1} 页 · 一个页面表达一个主题</p></div></div>
                 <label><span>页面标识（仅编辑器显示）</span><input value={current.eyebrow} onChange={e => setCards((list: Card[]) => normalizeCards(list).map((x, i) => i === activeCard ? {...x, eyebrow: e.target.value} : x))}/></label>
                 <label><span>AI 小标题</span><textarea className="title-input" value={current.title} onChange={e => setCards((list: Card[]) => normalizeCards(list).map((x, i) => i === activeCard ? {...x, title: e.target.value} : x))}/></label>
-                <label><span>正文</span><textarea value={current.body} onChange={e => setCards((list: Card[]) => normalizeCards(list).map((x, i) => i === activeCard ? {...x, body: e.target.value} : x))}/></label>
+                <label className="body-field"><span>正文</span><textarea className="body-input" value={current.body} onChange={e => setCards((list: Card[]) => normalizeCards(list).map((x, i) => i === activeCard ? {...x, body: e.target.value} : x))}/></label>
                 {current.bullets && <label><span>列表项</span><textarea value={current.bullets.join('\n')} onChange={e => setCards((list: Card[]) => normalizeCards(list).map((x, i) => i === activeCard ? {...x, bullets: e.target.value.split('\n')} : x))}/></label>}
               </section>
               <section className="preview-stage">
-                <div className="preview-toolbar"><div className="density-control"><span>密度</span>{(['relaxed','standard','compact'] as Density[]).map(d => <button className={density === d ? 'active' : ''} key={d} onClick={() => setDensity(d)}>{d === 'relaxed' ? '舒展' : d === 'standard' ? '标准' : '紧凑'}</button>)}</div><span className="preview-size">1080 × 1440 · 3:4</span></div>
-                <CardPreview card={current} theme={theme} density={density} page={activeCard + 1} total={safeCards.length}/>
+                <div className="preview-toolbar"><div className="preview-controls"><div className="density-control" aria-label="卡片排版密度"><span>密度</span>{densityOptions.map(option => <button type="button" aria-pressed={density === option.id} title={option.description} className={density === option.id ? 'active' : ''} key={option.id} onClick={() => setDensity(option.id)}>{option.label}</button>)}</div>{layoutChecking ? <span className="capacity-indicator checking"><LoaderCircle className="spin"/>正在测量</span> : currentLayout ? <span className={`capacity-indicator ${currentLayout.overflow ? 'overflow' : ''}`}>{currentLayout.overflow ? <CircleAlert/> : <CheckCircle2/>}本页占用 {currentLayout.utilization}%</span> : null}</div><span className="preview-size">1080 × 1440 · 3:4</span></div>
+                <CardPreview card={current} theme={theme} density={density} page={activeCard + 1} total={safeCards.length} overflow={currentLayout?.overflow}/>
                 <div className="page-nav"><button disabled={activeCard === 0} onClick={() => setActiveCard((n: number) => n - 1)}><ChevronLeft size={17}/></button><div>{safeCards.map((_: Card, i: number) => <button key={i} className={i === activeCard ? 'active' : ''} onClick={() => setActiveCard(i)}>{i + 1}</button>)}</div><button disabled={activeCard === safeCards.length - 1} onClick={() => setActiveCard((n: number) => n + 1)}><ChevronRight size={17}/></button></div>
               </section>
               <aside className="theme-panel panel">
                 <div className="panel-head compact"><div><h2><Palette size={17}/> 模板</h2><p>全套卡片统一应用</p></div></div>
                 <div className="theme-list">{themes.map(t => <button key={t.id} className={theme === t.id ? 'active' : ''} onClick={() => setTheme(t.id)}><div className="swatches">{t.swatches.map(c => <i key={c} style={{background:c}}/>)}</div><span><b>{t.name}</b><small>{t.desc}</small></span>{theme === t.id && <CheckCircle2 size={16}/>}</button>)}</div>
-                <div className="layout-check"><b>分页校验</b><span><CheckCircle2/>无文字溢出</span><span><CheckCircle2/>标题未孤立</span><span><CheckCircle2/>末页平衡良好</span><span><CheckCircle2/>页码连续</span></div>
+                <div className="layout-check"><b>分页校验</b>{layoutChecking ? <span className="pending"><LoaderCircle className="spin"/>正在按导出尺寸测量</span> : overflowCount > 0 ? <span className="warning"><CircleAlert/>{overflowSummary}</span> : <span><CheckCircle2/>全部 {safeCards.length} 页无溢出</span>}<span className={currentLayout?.overflow ? 'warning' : ''}>{currentLayout?.overflow ? <CircleAlert/> : <CheckCircle2/>}{currentLayout?.overflow ? currentOverflowLabel : `当前页占用 ${currentLayout ? `${currentLayout.utilization}%` : '待测量'}`}</span><span><CheckCircle2/>密度已同步到预览与导出</span><span><CheckCircle2/>页码连续</span></div>
               </aside>
+              <div className="card-validation-host" ref={validationHostRef} aria-hidden="true">{safeCards.map((card: Card, index: number) => <CardPreview key={index} card={card} theme={theme} density={density} page={index + 1} total={safeCards.length}/>)}</div>
             </div>}
     </div>
   )
@@ -924,9 +1006,9 @@ function GenerationEmptyState({ mode, loading, onGenerate }: { mode: GeneratedMo
   )
 }
 
-function CardPreview({ card, theme, density, page, total }: any) {
+function CardPreview({ card, theme, density, page, total, overflow = false }: any) {
   const safeCard = normalizeCard(card, Math.max(0, page - 1))
-  return <div className={`card-preview ${theme} ${density}`}><div className="card-accent"/><div className="card-head"><i>{String(page).padStart(2,'0')}</i></div><div className="card-body"><h2>{safeCard.title.split('\n').map((line: string, i: number) => <span key={i}>{line}</span>)}</h2>{safeCard.addedLead && <p className="added-text">{safeCard.addedLead}</p>}<p className="original-text">{safeCard.body}</p>{safeCard.bullets && <ul>{safeCard.bullets.map((b: string, i: number) => <li key={i}><i>{i + 1}</i><span>{b}</span></li>)}</ul>}{safeCard.addedEnding && <p className="added-text ending">{safeCard.addedEnding}</p>}</div><div className="card-foot"><span>原文保真 · 系统仅加标题/导语</span><b>{page} / {total}</b></div></div>
+  return <div className={`card-preview ${theme} ${density}${overflow ? ' layout-overflow' : ''}`}><div className="card-accent"/><div className="card-head"><i>{String(page).padStart(2,'0')}</i></div><div className="card-body"><h2>{safeCard.title.split('\n').map((line: string, i: number) => <span key={i}>{line}</span>)}</h2>{safeCard.addedLead && <p className="added-text">{safeCard.addedLead}</p>}<p className="original-text">{safeCard.body}</p>{safeCard.bullets && <ul>{safeCard.bullets.map((b: string, i: number) => <li key={i}><i>{i + 1}</i><span>{b}</span></li>)}</ul>}{safeCard.addedEnding && <p className="added-text ending">{safeCard.addedEnding}</p>}</div><div className="card-foot"><span>原文保真 · 系统仅加标题/导语</span><b>{page} / {total}</b></div></div>
 }
 
 function ExportView({ project, theme, cards, publicationCount, publicationOverLimit, onExport, exporting }: any) {
