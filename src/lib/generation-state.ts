@@ -4,6 +4,8 @@ export type GenerationInput = {
   name?: string
   eventName?: string
   eventType?: string
+  /** User-facing free-form content type. eventType remains a legacy fallback. */
+  contentType?: string
   originalText?: string
 }
 
@@ -14,9 +16,6 @@ export type GenerationRecord = GenerationInput & {
 
 export function generationSourceKey(input: GenerationInput) {
   const source = [
-    input.name || '',
-    input.eventName || '',
-    input.eventType || '',
     input.originalText || '',
   ].join('\u241f')
   let hash = 2166136261
@@ -24,7 +23,7 @@ export function generationSourceKey(input: GenerationInput) {
     hash ^= character.codePointAt(0) || 0
     hash = Math.imul(hash, 16777619)
   }
-  return `v1:${[...source].length}:${(hash >>> 0).toString(36)}`
+  return `v2:${[...source].length}:${(hash >>> 0).toString(36)}`
 }
 
 export function hasCurrentGeneration(record: GenerationRecord, mode: GeneratedMode) {
