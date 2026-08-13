@@ -10,11 +10,11 @@
     "dev": "vite dev --port 3000",
     "generate-routes": "tsr generate",
     "build": "vite build",
+    "package:esa": "node scripts/esa-package.mjs",
     "test": "vitest run --config vitest.config.ts",
-    "deploy": "bun run build && wrangler deploy"
+    "deploy": "bun run build && node scripts/esa-deploy.mjs"
   },
   "dependencies": {
-    "@cloudflare/vite-plugin": "1.40.2",
     "@ottermind/vibecoding-tanstack-config": "file:./packages/vibecoding-tanstack-config",
     "@supabase/supabase-js": "^2.86.0",
     "@tailwindcss/vite": "4.3.1",
@@ -36,6 +36,10 @@
     "tailwindcss": "4.3.1"
   },
   "devDependencies": {
+    "@alicloud/credentials": "2.4.4",
+    "@alicloud/esa20240910": "2.43.0",
+    "@alicloud/openapi-client": "0.4.15",
+    "@alicloud/tea-util": "1.4.9",
     "@tailwindcss/typography": "0.5.20",
     "@tanstack/devtools-vite": "0.7.0",
     "@tanstack/router-cli": "1.167.17",
@@ -48,8 +52,7 @@
     "jsdom": "28.1.0",
     "typescript": "6.0.3",
     "vite": "8.0.16",
-    "vitest": "4.1.8",
-    "wrangler": "4.100.0"
+    "vitest": "4.1.8"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

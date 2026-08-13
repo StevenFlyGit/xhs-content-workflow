@@ -10,37 +10,6 @@ import { handlePlatformAiRequest } from './platform/backend.server'
 type RuntimeEnv = Record<string, unknown>
 const BUSINESS_RUNTIME_SECRET_KEYS = new Set(['NUBASE_AI_GATEWAY_KEY'])
 
-type AssetFetcher = {
-  fetch(request: Request): Response | Promise<Response>
-}
-
-const ROOT_STATIC_FILE_EXTENSIONS = new Set([
-  '.css',
-  '.js',
-  '.mjs',
-  '.json',
-  '.wasm',
-  '.svg',
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.webp',
-  '.avif',
-  '.bmp',
-  '.tif',
-  '.tiff',
-  '.ico',
-  '.woff',
-  '.woff2',
-  '.ttf',
-  '.otf',
-  '.eot',
-  '.txt',
-  '.xml',
-  '.webmanifest',
-])
-
 declare module '@tanstack/react-router' {
   interface Register {
     server: {
@@ -63,14 +32,6 @@ function renderServerError() {
   )
 }
 
-function getAssetsBinding(env?: RuntimeEnv): AssetFetcher | undefined {
-  const assets = env?.ASSETS
-  if (assets && typeof assets === 'object' && typeof (assets as AssetFetcher).fetch === 'function') {
-    return assets as AssetFetcher
-  }
-  return undefined
-}
-
 function businessRuntimeEnv(env?: RuntimeEnv): RuntimeEnv | undefined {
   if (!env || ![...BUSINESS_RUNTIME_SECRET_KEYS].some((key) => key in env)) return env
   return Object.fromEntries(
@@ -78,23 +39,7 @@ function businessRuntimeEnv(env?: RuntimeEnv): RuntimeEnv | undefined {
   )
 }
 
-function extensionForPath(pathname: string): string {
-  const filename = pathname.split('/').pop() ?? ''
-  const dot = filename.lastIndexOf('.')
-  if (dot <= 0) return ''
-  return filename.slice(dot).toLowerCase()
-}
-
-function isStaticAssetRequest(request: Request): boolean {
-  const url = new URL(request.url)
-  if (url.pathname.startsWith('/assets/')) return true
-  if (url.pathname.endsWith('/')) return false
-  const withoutLeadingSlash = url.pathname.replace(/^\/+/, '')
-  if (withoutLeadingSlash.includes('/')) return false
-  return ROOT_STATIC_FILE_EXTENSIONS.has(extensionForPath(url.pathname))
-}
-
-export default createServerEntry({
+const serverEntry = createServerEntry({
   async fetch(request, env?: RuntimeEnv) {
     try {
       preparePlatformRuntime(request, env)
@@ -104,11 +49,6 @@ export default createServerEntry({
 
       const platformResponse = await handlePlatformRequest(request, env)
       if (platformResponse) return platformResponse
-
-      if (isStaticAssetRequest(request)) {
-        const assets = getAssetsBinding(env)
-        if (assets) return await assets.fetch(request)
-      }
 
       const response = await handler.fetch(request, {
         context: {
@@ -124,3 +64,11 @@ export default createServerEntry({
     }
   },
 })
+
+// ESA Edge Routine entry: the platform routes non-asset requests to this
+// handler and serves files from the routine `assets/` directory itself.
+export default {
+  async fetch(request: Request, env?: RuntimeEnv) {
+    return serverEntry.fetch(request, env)
+  },
+}

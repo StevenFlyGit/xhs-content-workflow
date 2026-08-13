@@ -1,4 +1,3 @@
-import { cloudflare } from '@cloudflare/vite-plugin'
 import tailwindcss from '@tailwindcss/vite'
 import { devtools } from '@tanstack/devtools-vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -13,9 +12,16 @@ export function defineVibeCodingConfig(options = {}) {
       tsconfigPaths: true,
       ...(extra.resolve ?? {}),
     },
+    environments: {
+      ssr: {
+        // ESA Edge Routine has no npm runtime: bundle every dependency into
+        // the server entry. Node builtins stay external and require the
+        // routine's Node.js compatibility mode.
+        resolve: { noExternal: true },
+      },
+    },
     plugins: [
       devtools(),
-      cloudflare({ viteEnvironment: { name: options.cloudflareEnvironmentName ?? 'ssr' } }),
       tailwindcss(),
       tanstackStart({ server: { entry: options.serverEntry ?? 'server' } }),
       viteReact(),

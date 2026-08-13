@@ -1,4 +1,4 @@
-name: Deploy to Cloudflare Workers
+name: Deploy to Alibaba Cloud ESA Pages
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloudflare-production
+  group: esa-production
   cancel-in-progress: false
 
 jobs:
@@ -37,10 +37,11 @@ jobs:
       - name: Build application
         run: bun run build
 
-      - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
-          packageManager: bun
+      - name: Package ESA Edge Routine
+        run: bun run package:esa
+
+      - name: Deploy to Alibaba Cloud ESA
+        env:
+          ALIBABA_CLOUD_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
+          ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_SECRET }}
+        run: node scripts/esa-deploy.mjs xhs-content-workflow
