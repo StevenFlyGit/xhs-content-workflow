@@ -65,6 +65,7 @@ import {
 } from "../lib/card-media";
 import {
   analyzeSemanticProject,
+  generatePublicationDraft,
   generateCardEnhancement,
   refineCardUnit,
   regenerateUnitTitle,
@@ -125,6 +126,7 @@ type LocalWorkspace = {
   editorPane?: EditorPane;
   sourceSentences?: SourceSentence[];
   analysisMode?: "model" | "local-fallback";
+  analysisWarning?: string;
   analysisDirty?: boolean;
   versions?: Version[];
 };
@@ -186,6 +188,18 @@ type SemanticApiResponse = {
   }>;
 };
 
+type PublicationApiResponse = {
+  ok: boolean;
+  mode?: "model" | "local-fallback";
+  error?: string;
+  title?: string;
+  body?: string;
+  tags?: string;
+  publicationTone?: string;
+  publicationCharacterCount?: number;
+  summaryGeneration?: "model" | "local-fallback";
+  summaryWasRewritten?: boolean;
+};
 const densityOptions: Array<{
   id: Density;
   label: string;
@@ -226,6 +240,15 @@ const analyzeSemanticCards = createServerFn({ method: "POST" })
       (context as { env?: Record<string, unknown> }).env,
     ) as Promise<SemanticApiResponse>;
   });
+const generateSemanticPublication = createServerFn({ method: "POST" })
+  .validator((data: ProjectState) => data)
+  .handler(async ({ data, context }) => {
+    return generatePublicationDraft(
+      data,
+      (context as { env?: Record<string, unknown> }).env,
+    );
+  });
+
 const regenerateSemanticUnitTitle = createServerFn({ method: "POST" })
   .validator((data: RegenerateUnitTitleRequest) => data)
   .handler(async ({ data, context }) => {
@@ -608,7 +631,7 @@ const navItems: {
   { id: "projects", label: "项目工作台", icon: LayoutDashboard },
   { id: "input", label: "内容输入", icon: FileText, number: 1 },
   { id: "editor", label: "内容编辑器", icon: PanelRight, number: 2 },
-  { id: "export", label: "内容导出", icon: FileArchive, number: 4 },
+  { id: "export", label: "内容导出", icon: FileArchive, number: 3 },
 ];
 
 function safeFileName(value: string) {
@@ -788,6 +811,7 @@ async function buildImagePackage(
 
 function Home() {
   const analyzeCardsFn = useServerFn(analyzeSemanticCards);
+  const generatePublicationFn = useServerFn(generateSemanticPublication);
   const regenerateUnitTitleFn = useServerFn(regenerateSemanticUnitTitle);
   const generateCardEnhancementFn = useServerFn(
     generateSemanticCardEnhancement,
@@ -802,6 +826,7 @@ function Home() {
   const [analysisMode, setAnalysisMode] = useState<"model" | "local-fallback">(
     "model",
   );
+  const [analysisWarning, setAnalysisWarning] = useState("");
   const [analysisDirty, setAnalysisDirty] = useState(false);
   const [cards, setCards] = useState<Card[]>(initialCards);
   const [theme, setTheme] = useState<ThemeId>("research-light");
@@ -828,6 +853,9 @@ function Home() {
   const [analysisState, setAnalysisState] = useState<
     "idle" | "loading" | "done" | "error"
   >("done");
+  const [publicationState, setPublicationState] = useState<
+    "idle" | "loading" | "done" | "error"
+  >("idle");
   const [toast, setToast] = useState("");
   const [evidenceId, setEvidenceId] = useState<string | null>(null);
   const [versions, setVersions] = useState<Version[]>(initialVersions);
@@ -839,6 +867,10 @@ function Home() {
   );
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const publicationRequestRef = useRef({
+    sourceKey: "",
+    requestId: 0,
+  });
 
   const paragraphs = useMemo(
     () =>
@@ -973,6 +1005,7 @@ function Home() {
         setInsights(first.insights || []);
         setSourceSentences(first.sourceSentences || []);
         setAnalysisMode(first.analysisMode || "local-fallback");
+        setAnalysisWarning(first.analysisWarning || "");
         setAnalysisDirty(first.analysisDirty === true);
         setCards(normalizeCards(first.cards));
         setTheme(first.theme || "research-light");
@@ -1014,6 +1047,7 @@ function Home() {
         insights,
         sourceSentences,
         analysisMode,
+        analysisWarning,
         analysisDirty,
         cards,
         theme,
@@ -1063,6 +1097,7 @@ function Home() {
       insights,
       sourceSentences,
       analysisMode,
+      analysisWarning,
       analysisDirty,
       cards,
       theme,
@@ -1099,6 +1134,11 @@ function Home() {
       };
     });
     if (invalidatesGeneration) {
+      publicationRequestRef.current = {
+        sourceKey: "",
+        requestId: publicationRequestRef.current.requestId + 1,
+      };
+      setPublicationState("idle");
       setAnalysisState("idle");
       setAnalysisDirty(false);
     }
@@ -1236,6 +1276,7 @@ function Home() {
       insights,
       sourceSentences,
       analysisMode,
+      analysisWarning,
       analysisDirty,
       cards,
       theme,
@@ -1272,6 +1313,7 @@ function Home() {
     setInsights(empty.insights);
     setSourceSentences([]);
     setAnalysisMode("local-fallback");
+    setAnalysisWarning("");
     setAnalysisDirty(false);
     setCards(empty.cards);
     setVersions([]);
@@ -1325,6 +1367,7 @@ function Home() {
     );
     setSourceSentences(nextSourceSentences);
     setAnalysisMode(workspace.analysisMode || "local-fallback");
+    setAnalysisWarning(workspace.analysisWarning || "");
     setAnalysisDirty(workspace.analysisDirty === true);
     setCards(normalizeCards(workspace.cards));
     setTheme(workspace.theme);
@@ -1395,6 +1438,7 @@ function Home() {
         );
         setSourceSentences(nextSourceSentences);
         setAnalysisMode(next.analysisMode || "local-fallback");
+        setAnalysisWarning(next.analysisWarning || "");
         setAnalysisDirty(next.analysisDirty === true);
         setCards(normalizeCards(next.cards));
         setTheme(next.theme || "research-light");
@@ -1421,9 +1465,73 @@ function Home() {
     notify(`已删除“${name}”及其本地数据`);
   }
 
-  async function runAnalysis(options: { stayInEditor?: boolean } = {}) {
+  async function generatePublicationInBackground(
+    requestedProject: ProjectState = project,
+  ) {
+    const requestedSourceKey = generationSourceKey(requestedProject);
+    if (publicationRequestRef.current.sourceKey === requestedSourceKey) return;
+
+    const requestId = publicationRequestRef.current.requestId + 1;
+    publicationRequestRef.current = {
+      sourceKey: requestedSourceKey,
+      requestId,
+    };
+    setPublicationState("loading");
+    try {
+      const result = (await generatePublicationFn({
+        data: requestedProject,
+      })) as PublicationApiResponse;
+      if (requestId !== publicationRequestRef.current.requestId) return;
+      if (!result.ok) throw new Error(result.error || "精华文案生成失败");
+      setProject((current) => {
+        if (generationSourceKey(current) !== requestedSourceKey) return current;
+        return {
+          ...current,
+          title: result.title || current.title || current.name,
+          summary: result.body || "",
+          tags: result.tags || "",
+          publicationTone: result.publicationTone,
+          summaryGeneration: result.summaryGeneration,
+          summaryWasRewritten: result.summaryWasRewritten,
+          generatedModes: [
+            ...new Set([
+              ...(current.generatedModes || []).filter((mode) => mode === "card"),
+              "summary",
+            ]),
+          ],
+          generatedSourceKey: requestedSourceKey,
+        };
+      });
+      publicationRequestRef.current = { sourceKey: "", requestId };
+      setPublicationState("done");
+      notify(
+        result.mode === "model"
+          ? `精华版文案已生成 · ${result.publicationTone || "自然真诚"}`
+          : "模型不可用，已生成原文保真草稿",
+      );
+    } catch (error) {
+      if (requestId !== publicationRequestRef.current.requestId) return;
+      publicationRequestRef.current = { sourceKey: "", requestId };
+      setPublicationState("error");
+      notify(error instanceof Error ? error.message : "精华文案生成失败，请重试");
+    }
+  }
+  async function generatePublicationOnly() {
+    if (!project.originalText.trim()) return notify("请先输入原文");
+    setEditorPane("cards");
+    setStep("editor");
+    await generatePublicationInBackground(project);
+  }
+
+  async function runAnalysis() {
     if (!project.originalText.trim()) return notify("请先输入活动内容");
     if (charCount > 10000) return notify("原文超过 10000 字符，请先精简");
+
+    if (project.outputMode === "summary") {
+      await generatePublicationOnly();
+      return;
+    }
+
     const protectedCards = normalizeCards(cards).filter(
       (card) =>
         card.manualTitle ||
@@ -1436,32 +1544,26 @@ function Home() {
     );
     if (protectedCards.length) {
       const confirmed = window.confirm(
-        "\u91cd\u65b0\u89e3\u6790\u4f1a\u6e05\u7a7a\u5f53\u524d\u5361\u7247\u7ed3\u6784\u3002\u5176\u4e2d " +
+        "重新解析会清空当前卡片结构。其中 " +
           protectedCards.length +
-          " \u5f20\u542b\u6709\u624b\u5de5\u4fee\u6539\u3001\u5c0f\u5b57\u6216\u672c\u5730\u56fe\u7247\uff1b\u7ee7\u7eed\u540e\u5c06\u653e\u5f03\u5f53\u524d\u5361\u7247\u5bf9\u5e94\u5173\u7cfb\uff0c\u662f\u5426\u7ee7\u7eed\uff1f",
+          " 张含有手工修改、小字或本地图片；继续后将放弃当前卡片对应关系，是否继续？",
       );
       if (!confirmed) return;
     }
+
     const requestedSourceKey = generationSourceKey(project);
+    const requestedProject = project;
     setAnalysisState("loading");
     setEditorPane("structure");
     setStep("editor");
     try {
       const result = (await analyzeCardsFn({
-        data: project,
+        data: requestedProject,
       })) as SemanticApiResponse;
       if (!result.ok) throw new Error(result.error || "语义解析失败");
       const nextSourceSentences = normalizeSourceSentences(
         result.sourceSentences,
-        project.originalText,
-      );
-      const returnedModes = (result.generatedModes || []).filter(
-        (mode): mode is GeneratedMode => mode === "summary" || mode === "card",
-      );
-      const generatedModes = returnedModes.filter((mode) =>
-        mode === "summary"
-          ? Boolean(result.summary?.trim() && result.summaryGeneration)
-          : false,
+        requestedProject.originalText,
       );
       const blockInsights: Insight[] = (
         result.units ||
@@ -1486,6 +1588,11 @@ function Home() {
       setInsights(blockInsights);
       setSourceSentences(nextSourceSentences);
       setAnalysisMode(result.mode || "local-fallback");
+      setAnalysisWarning(
+        result.mode === "local-fallback"
+          ? "模型接口本次未返回可用的结构规划，当前按原文的连续段落或同级列表生成候选分块；可手动调整或重新解析。"
+          : "",
+      );
       setAnalysisDirty(false);
       setEvidenceId(blockInsights[0]?.id || null);
       setCards((current) =>
@@ -1493,33 +1600,30 @@ function Home() {
       );
       setProject((current) => ({
         ...current,
-        title: result.title || "",
-        summary: result.summary || "",
-        tags: result.tags || "",
-        publicationTone: result.publicationTone,
-        summaryGeneration: result.summaryGeneration,
-        summaryWasRewritten: result.summaryWasRewritten,
-        generatedModes,
-        generatedSourceKey: generatedModes.length
-          ? requestedSourceKey
-          : undefined,
+        title: result.title || current.title || current.name,
         analysisRequestedMode:
-          result.analysisRequestedMode || project.outputMode,
+          result.analysisRequestedMode || requestedProject.outputMode,
         planningVersion: result.planningVersion,
       }));
       setActiveCard(0);
       setAnalysisState("done");
       notify(
         result.mode === "model"
-          ? `内容结构与精华文案已生成 · ${result.publicationTone || "自然真诚"}`
-          : `已生成保真结构草稿${result.warning ? `：${result.warning}` : ""}`,
+          ? `单卡内容结构草案已生成 · ${blockInsights.length} 个单元`
+          : "模型接口本次未返回可用规划，已展示本地规则生成的结构草稿",
       );
+      void generatePublicationInBackground(requestedProject);
     } catch (error) {
       setAnalysisState("error");
       notify(error instanceof Error ? error.message : "解析失败，请重试");
     }
   }
 
+  function returnToStructure() {
+    setEditorPane("structure");
+    setStep("editor");
+    notify("请先在结构解析中确认单卡内容单元");
+  }
   function continueFromAnalysis() {
     const counts = new Map<string, number>();
     insights.forEach((block) =>
@@ -1809,12 +1913,12 @@ function Home() {
               <span />
               {saveState === "saving" ? "保存中…" : "已自动保存"}
             </span>
-            <button
+            {/* <button
               className="version-button"
               onClick={() => setVersionOpen(true)}
             >
               <History size={16} /> 版本 <span>{versions.length}</span>
-            </button>
+            </button> */}
             <span className="test-mode-badge">本地测试模式</span>
           </div>
         </header>
@@ -1854,6 +1958,7 @@ function Home() {
                 selectedId={evidenceId}
                 setSelectedId={setEvidenceId}
                 analysisMode={analysisMode}
+                analysisWarning={analysisWarning}
                 presentation={
                   project.outputMode === "image-card" ? "image-card" : "card"
                 }
@@ -1874,8 +1979,9 @@ function Home() {
             cardsReady={cardsReady}
             completeCardCount={completeCardCount}
             imageCardCount={imageCardCount}
-            generationLoading={analysisState === "loading"}
-            onGenerateSummary={() => runAnalysis({ stayInEditor: true })}
+            generationLoading={publicationState === "loading"}
+            onGenerateSummary={generatePublicationOnly}
+            onReturnToStructure={returnToStructure}
             publicationCount={publicationCount}
             publicationOverLimit={publicationOverLimit}
             cards={cards}
@@ -2169,7 +2275,7 @@ function InputView({
   return (
     <div className="page input-page">
       <SectionTitle
-        kicker="步骤 01 / 04"
+        kicker="步骤 01 / 03"
         title="输入内容"
         description="粘贴完整笔记；系统会先理解，再进行平台化编排。"
         actions={
@@ -2184,7 +2290,7 @@ function InputView({
               <Eye size={16} /> {checkOpen ? "收起检查" : "输入检查"}
             </button>
             <button type="button" className="primary" onClick={onAnalyze}>
-              <Sparkles size={16} /> 开始结构化解析
+              <Sparkles size={16} /> {project.outputMode === "summary" ? "生成精华文案" : "开始结构化解析"}
             </button>
           </>
         }
@@ -2311,8 +2417,8 @@ function InputView({
               <small className={`mode-hint ${project.outputMode}`}>
                 {project.outputMode === "summary"
                   ? charCount > SUMMARY_REWRITE_THRESHOLD
-                    ? `原文超过 ${SUMMARY_REWRITE_THRESHOLD} 字，将调用模型压缩并匹配个性化口吻`
-                    : "生成可直接发布的个性化文案，总字数不超过 1000 字"
+                    ? `仅生成精华文案：原文超过 ${SUMMARY_REWRITE_THRESHOLD} 字，将调用模型压缩并匹配个性化口吻；不生成卡片内容`
+                    : "仅生成可直接发布的个性化文案，不生成卡片内容；总字数不超过 1000 字"
                   : project.outputMode === "image-card"
                     ? "固定紧凑密度，为每张内容卡的上半部分预留用户图片位置"
                     : "完整保留原文，按语义拆成可编辑图片卡片"}
@@ -2433,6 +2539,7 @@ function EditorView({
   imageCardCount,
   generationLoading,
   onGenerateSummary,
+  onReturnToStructure,
   publicationCount,
   publicationOverLimit,
   cards,
@@ -2577,7 +2684,7 @@ function EditorView({
   return (
     <div className="page editor-page">
       <SectionTitle
-        kicker="步骤 02 / 04"
+        kicker="步骤 02 / 03"
         title={
           editorPane === "structure"
             ? "结构解析与卡片规划"
@@ -2590,13 +2697,13 @@ function EditorView({
         }
         actions={
           <>
-            <button
+            {/* <button
               className="secondary"
               disabled={!contentReady}
               onClick={onVersion}
             >
               <Save size={16} /> 保存版本
-            </button>
+            </button> */}
             <button
               className="primary"
               disabled={!contentReady || cardExportBlocked}
@@ -2683,8 +2790,8 @@ function EditorView({
           ) : !hasCards ? (
             <GenerationEmptyState
               mode="card"
-              loading={generationLoading}
-              onGenerate={onGenerateSummary}
+              loading={false}
+              onGenerate={onReturnToStructure}
             />
           ) : (
             <div className="card-workbench">
@@ -3101,17 +3208,17 @@ function GenerationEmptyState({
         )}
       </div>
       <span className="generation-empty-kicker">
-        {summaryMode ? "精华版尚未生成" : "完整卡片尚未生成"}
+        {summaryMode ? "精华版尚未生成" : "卡片内容尚未确认"}
       </span>
       <h2>
         {summaryMode
           ? "生成一份可直接发布的精华文案"
-          : "重新解析当前原文并生成卡片"}
+          : "请先确认单卡内容结构"}
       </h2>
       <p>
         {summaryMode
-          ? "当前没有与这份原文匹配的精华内容。系统不会使用完整原文代替，生成后会同时更新卡片结果。"
-          : "现有卡片与当前原文不匹配。重新生成后，精华文案也会同步更新。"}
+          ? "当前没有与这份原文匹配的精华内容。生成精华版不会改动已确认的卡片结构。"
+          : "请返回结构解析，确认每个单卡内容单元后再进入卡片编辑。"}
       </p>
       <button
         type="button"
@@ -3125,16 +3232,19 @@ function GenerationEmptyState({
           <Sparkles size={16} />
         )}
         {loading
-          ? "正在同时生成两种内容…"
+          ? "正在生成精华版…"
           : summaryMode
             ? "生成精华版"
-            : "重新生成两种内容"}
+            : "返回结构解析"}
       </button>
-      <small>事实严格来自原文 · 一次调用同时生成精华版与完整卡片版</small>
+      <small>
+        {summaryMode
+          ? "事实严格来自原文 · 精华文案独立生成，不影响卡片内容"
+          : "确认结构后，本地映射为对应卡片，不会再次调用模型"}
+      </small>
     </div>
   );
 }
-
 function ExportView({
   project,
   theme,
@@ -3151,7 +3261,7 @@ function ExportView({
   return (
     <div className="page">
       <SectionTitle
-        kicker="步骤 04 / 04"
+        kicker="步骤 03 / 03"
         title="内容导出"
         description={
           summaryMode

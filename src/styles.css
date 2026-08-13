@@ -1328,7 +1328,7 @@ select:focus {
 }
 .card-enhancement-editor {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   margin-top: 14px;
   padding: 12px;
   border: 1px solid #e2e8f0;
@@ -1337,27 +1337,41 @@ select:focus {
 }
 .card-enhancement-row {
   display: grid;
-  gap: 8px;
+  gap: 4px;
 }
-.card-enhancement-head,
-.inline-toggle {
-  display: flex;
+.card-enhancement-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
-.inline-toggle {
-  justify-content: flex-start;
+.block-editor .card-enhancement-editor .inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  gap: 8px;
   color: #344054;
   font-size: 13px;
   font-weight: 700;
 }
+.inline-toggle span,
+.card-enhancement-head .text-button {
+  white-space: nowrap;
+}
 .inline-toggle input {
+  flex: none;
   width: 15px;
   height: 15px;
+  margin: 0;
 }
-.card-enhancement-editor textarea {
+.card-enhancement-head .text-button {
+  flex: none;
+}
+.block-editor .card-enhancement-editor textarea {
+  height: 58px;
   min-height: 58px;
+  margin: 0;
   resize: vertical;
   font-size: 13px;
   line-height: 1.55;
@@ -2407,11 +2421,18 @@ select:focus {
   padding: var(--card-pad-top) var(--card-pad-x) var(--card-pad-bottom);
 }
 .card-preview .card-topline {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  display: block;
   min-width: 0;
   flex: none;
+}
+/* Text-card page markers are pinned to the card safety area, independently
+   from title length and title wrapping. */
+.card-preview:not(.image-card) .card-head {
+  position: absolute;
+  top: var(--card-pad-top);
+  right: calc(var(--card-pad-x) - 4px);
+  z-index: 2;
+  pointer-events: none;
 }
 .card-preview.image-card .card-image-header {
   display: flex;
@@ -2495,8 +2516,9 @@ select:focus {
   display: block;
   min-width: 0;
   max-width: 100%;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   word-break: normal;
+  hyphens: none;
 }
 .card-preview .card-head {
   display: flex;
@@ -2520,8 +2542,9 @@ select:focus {
   flex: 1 1 auto;
   margin: var(--card-title-gap) 0 0;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   word-break: normal;
+  hyphens: none;
 }
 .card-preview .card-foot {
   display: flex;
@@ -2569,8 +2592,9 @@ select:focus {
 .card-preview .card-body li {
   min-width: 0;
   max-width: 100%;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   word-break: normal;
+  hyphens: none;
 }
 .card-preview .card-body li i {
   flex: none;
@@ -2586,8 +2610,9 @@ select:focus {
 }
 .card-preview .card-body li span {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   word-break: normal;
+  hyphens: none;
 }
 .card-preview .card-body .added-text {
   margin: 0 0 13px;
@@ -2607,6 +2632,13 @@ select:focus {
 }
 .card-preview .card-body .original-text {
   white-space: pre-wrap;
+}
+/* Long URLs, paths and technical identifiers fill the current line before
+   breaking at the final available character. */
+.card-preview .line-end-break {
+  overflow-wrap: normal;
+  word-break: break-all;
+  hyphens: none;
 }
 .card-preview.ai-dark .card-title {
   color: #f8fafc;
@@ -2783,6 +2815,39 @@ select:focus {
 }
 .coverage-bar.attention dl > div {
   border-color: #eedebf;
+}
+.analysis-fallback-notice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: -7px 0 16px;
+  padding: 10px 13px;
+  border: 1px solid #f0d49d;
+  border-radius: 9px;
+  background: #fffbf2;
+  color: var(--amber);
+}
+.analysis-fallback-notice span {
+  min-width: 0;
+  flex: 1;
+}
+.analysis-fallback-notice b,
+.analysis-fallback-notice small {
+  display: block;
+}
+.analysis-fallback-notice b {
+  font-size: 12px;
+  color: #70470b;
+}
+.analysis-fallback-notice small {
+  margin-top: 3px;
+  color: #95703a;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.analysis-fallback-notice .text-button {
+  flex: none;
+  color: #8a5b17;
 }
 .analysis-page .analysis-layout {
   grid-template-columns: minmax(430px, 0.85fr) minmax(470px, 1.15fr);
@@ -3062,6 +3127,12 @@ select:focus {
   }
 }
 @media (max-width: 680px) {
+  .analysis-fallback-notice {
+    align-items: flex-start;
+  }
+  .analysis-fallback-notice .text-button {
+    padding-left: 0;
+  }
   .coverage-bar {
     align-items: flex-start;
     flex-direction: column;

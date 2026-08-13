@@ -41,6 +41,7 @@ type ContentBlockReviewProps = {
   selectedId: string | null;
   setSelectedId: React.Dispatch<React.SetStateAction<string | null>>;
   analysisMode?: "model" | "local-fallback";
+  analysisWarning?: string;
   presentation?: "card" | "image-card";
   onRetry: () => void;
   onRetitle?: (block: ContentBlock) => Promise<string | undefined>;
@@ -120,6 +121,7 @@ export function ContentBlockReview({
   selectedId,
   setSelectedId,
   analysisMode,
+  analysisWarning,
   presentation = "card",
   onRetry,
   onRetitle,
@@ -152,123 +154,6 @@ export function ContentBlockReview({
   );
   const [retitling, setRetitling] = useState(false);
   const [refining, setRefining] = useState(false);
-  const [autoRepairing, setAutoRepairing] = useState(false);
-  const [autoRepairRound, setAutoRepairRound] = useState(0);
-  const repairInFlightRef = useRef(false);
-  const repairedSignaturesRef = useRef(new Set<string>());
-  const sourceIdentity = useMemo(
-    () => sourceSentences.map((sentence) => sentence.id).join("|"),
-    [sourceSentences],
-  );
-
-  useEffect(() => {
-    if (state === "done") return;
-    repairedSignaturesRef.current.clear();
-    repairInFlightRef.current = false;
-    setAutoRepairing(false);
-    setAutoRepairRound(0);
-  }, [sourceIdentity, state]);
-
-  useEffect(() => {
-    if (state !== "done" || !blocks.length) {
-      setCandidateLayouts([]);
-      return;
-    }
-    let cancelled = false;
-    let frame = 0;
-    const measure = () => {
-      if (cancelled) return;
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const nodes = Array.from(
-          candidateHostRef.current?.querySelectorAll<HTMLElement>(
-            ".card-preview",
-          ) || [],
-        );
-        const next = nodes.map(measureCardLayout);
-        if (!cancelled) setCandidateLayouts(next);
-      });
-    };
-    measure();
-    const settleTimer = window.setTimeout(measure, 240);
-    document.fonts?.ready.then(measure);
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(measure);
-    if (candidateHostRef.current) observer?.observe(candidateHostRef.current);
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frame);
-      window.clearTimeout(settleTimer);
-      observer?.disconnect();
-    };
-  }, [blocks, sourceSentences, state]);
-
-  useEffect(() => {
-    if (
-      state !== "done" ||
-      !onRefine ||
-      autoRepairing ||
-      repairInFlightRef.current ||
-      autoRepairRound >= 2 ||
-      candidateLayouts.length !== blocks.length
-    )
-      return;
-
-    const target = blocks.find((block, index) => {
-      const layout = candidateLayouts[index];
-      const signature = block.id + ":" + block.sourceIds.join("|");
-      return (
-        block.status === "draft" &&
-        block.sourceIds.length >= 2 &&
-        layout?.contentClipped === true &&
-        !layout.horizontalOverflow &&
-        !repairedSignaturesRef.current.has(signature)
-      );
-    });
-    if (!target) return;
-
-    const signature = target.id + ":" + target.sourceIds.join("|");
-    repairedSignaturesRef.current.add(signature);
-    repairInFlightRef.current = true;
-    setAutoRepairing(true);
-    setAutoRepairRound((round) => round + 1);
-
-    void (async () => {
-      try {
-        const refined = await onRefine(target);
-        if (!refined?.length) return;
-        const autoRefined = refined.map((block) => ({
-          ...block,
-          status: "draft" as const,
-          note: "\u7cfb\u7edf\u6839\u636e\u9875\u9762\u5bb9\u91cf\u81ea\u52a8\u8c03\u6574",
-        }));
-        setBlocks((current) => {
-          if (!current.some((block) => block.id === target.id)) return current;
-          return current.flatMap((block) =>
-            block.id === target.id ? autoRefined : [block],
-          );
-        });
-        setSelectedId(autoRefined[0].id);
-        onStructureChange();
-      } finally {
-        repairInFlightRef.current = false;
-        setAutoRepairing(false);
-      }
-    })();
-  }, [
-    autoRepairRound,
-    autoRepairing,
-    blocks,
-    candidateLayouts,
-    onRefine,
-    onStructureChange,
-    setBlocks,
-    setSelectedId,
-    state,
-  ]);
-
   const coverage = useMemo(() => {
     const occurrences = new Map<string, number>();
     blocks.forEach((block) =>
@@ -424,12 +309,7 @@ export function ContentBlockReview({
   }
 
   function continueWithLayoutCheck() {
-    if (autoRepairing) {
-      notify(
-        "\u6b63\u5728\u4e3a\u8d85\u51fa\u5bb9\u91cf\u7684\u5355\u5143\u8fdb\u884c\u5c40\u90e8\u8c03\u6574\uff0c\u8bf7\u7a0d\u5019",
-      );
-      return;
-    }
+
     const horizontal = candidateLayouts.filter(
       (layout) => layout.horizontalOverflow,
     ).length;
@@ -467,9 +347,9 @@ export function ContentBlockReview({
             </p>
           </div>
           <div className="section-actions">
-            <button className="secondary" onClick={onVersion}>
+            {/* <button className="secondary" onClick={onVersion}>
               <Save size={16} /> 保存版本
-            </button>
+            </button> */}
             <button className="primary" onClick={continueWithLayoutCheck}>
               确认结构并生成内容 <ChevronRight size={16} />
             </button>
@@ -483,9 +363,9 @@ export function ContentBlockReview({
             <span>确认后，每个单元恰好生成一张内容卡。</span>
           </div>
           <div>
-            <button className="secondary" onClick={onVersion}>
+            {/* <button className="secondary" onClick={onVersion}>
               <Save size={16} /> 保存结构
-            </button>
+            </button> */}
             <button className="primary" onClick={continueWithLayoutCheck}>
               确认结构并进入卡片编辑 <ChevronRight size={16} />
             </button>
@@ -506,11 +386,9 @@ export function ContentBlockReview({
           <span>
             <b>{blocks.length} 个内容块</b>
             <small>
-              {autoRepairing
-                ? "\u6b63\u5728\u6839\u636e\u5b9e\u9645\u5361\u7247\u5bb9\u91cf\u5c40\u90e8\u8c03\u6574\u2026"
-                : analysisMode === "local-fallback"
-                  ? "\u5f53\u524d\u6309\u8fde\u7eed\u6bb5\u843d\u6216\u540c\u7ea7\u5217\u8868\u521d\u6b65\u5206\u7ec4\uff0c\u53ef\u7ee7\u7eed\u624b\u52a8\u8c03\u6574"
-                  : "\u5df2\u6309\u8bed\u4e49\u89c4\u5212\u4e0e\u5b9e\u9645\u5361\u7247\u5bb9\u91cf\u6821\u9a8c"}
+              {analysisMode === "local-fallback"
+                ? "模型接口本次未返回可用规划，当前按连续段落或同级列表进行本地初步分组；可继续手动调整或点击重新解析。"
+                : "已按单卡结构草案与实际卡片容量校验；如有裁切，可手动拆分或按需使用 AI 优化。"}
             </small>
           </span>
         </div>
@@ -531,6 +409,19 @@ export function ContentBlockReview({
           </div>
         </dl>
       </div>
+
+      {analysisMode === "local-fallback" && analysisWarning && (
+        <div className="analysis-fallback-notice" role="status">
+          <CircleAlert size={17} />
+          <span>
+            <b>本次使用本地规则分组</b>
+            <small>{analysisWarning}</small>
+          </span>
+          <button type="button" className="text-button" onClick={onRetry}>
+            <RefreshCw size={14} /> 重新解析
+          </button>
+        </div>
+      )}
 
       <div className="analysis-layout">
         <section className="panel block-outline">

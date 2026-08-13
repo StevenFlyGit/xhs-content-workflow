@@ -96,7 +96,7 @@ type ModelPlan = {
   publication?: PublicationDraft & { toneLabel?: string };
 };
 
-export const CARD_PLANNING_PROMPT_VERSION = "card-plan-v2";
+export const CARD_PLANNING_PROMPT_VERSION = "card-plan-v3-single-pass";
 
 function envString(env: RuntimeEnv | undefined, ...keys: string[]) {
   for (const key of keys) {
@@ -106,13 +106,23 @@ function envString(env: RuntimeEnv | undefined, ...keys: string[]) {
   return "";
 }
 
+/** DeepSeek V4 enables thinking by default; structured short-output tasks do not need it. */
+function fastStructuredOutputOptions(model: string) {
+  return /^deepseek-v4-(flash|pro)$/i.test(model.trim())
+    ? { thinking: { type: "disabled" as const } }
+    : {};
+}
 function compactJsonFromModel(text: string) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = fenced ? fenced[1] : text;
+  const raw = (fenced ? fenced[1] : text).replace(/^\uFEFF/, "").trim();
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("模型返回不是 JSON");
-  return JSON.parse(raw.slice(start, end + 1)) as ModelPlan;
+  try {
+    return JSON.parse(raw.slice(start, end + 1)) as ModelPlan;
+  } catch {
+    throw new Error("模型返回的 JSON 格式无效");
+  }
 }
 
 function compactTitle(value: string) {
@@ -215,6 +225,7 @@ export async function generateCardEnhancement(
           },
         ],
         temperature: 0.3,
+        ...fastStructuredOutputOptions(model),
         response_format: { type: "json_object" },
       }),
     });
@@ -313,6 +324,7 @@ export async function refineCardUnit(
           },
         ],
         temperature: 0.25,
+        ...fastStructuredOutputOptions(model),
         response_format: { type: "json_object" },
       }),
     });
@@ -403,13 +415,12 @@ export async function regenerateUnitTitle(
           },
         ],
         temperature: 0.25,
+        ...fastStructuredOutputOptions(model),
         response_format: { type: "json_object" },
       }),
     });
     if (!response.ok) throw new Error(`模型接口调用失败：${response.status}`);
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
+    const data = (await response.json()) as ChatCompletionPayload;
     const content = data.choices?.[0]?.message?.content || "";
     const parsed = compactJsonFromModel(content) as { title?: unknown };
     const title =
@@ -455,46 +466,29 @@ function groupFallbackSentences(sentences: SourceSentence[]) {
 }
 
 function fallbackPlan(
-  project: ProjectPayload,
+  _project: ProjectPayload,
   sentences: SourceSentence[],
 ): {
+  units: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    sourceSentenceIds: string[];
+    role: "content";
+  }>;
   semanticBlocks: ModelBlock[];
   cards: SemanticCard[];
   title: string;
-  summary: string;
-  tags: string;
 } {
   const semanticBlocks: ModelBlock[] = groupFallbackSentences(sentences).map(
     (list, index) => ({
       id: "B" + String(index + 1).padStart(2, "0"),
-      title: "\u5185\u5bb9\u5c0f\u8282" + String(index + 1).padStart(2, "0"),
-      summary:
-        "\u6309\u8fde\u7eed\u6bb5\u843d\u6216\u540c\u7ea7\u5217\u8868\u751f\u6210\u7684\u672c\u5730\u56de\u9000\u5206\u7ec4\uff0c\u914d\u7f6e\u6a21\u578b\u540e\u4f1a\u751f\u6210\u8bed\u4e49\u5c0f\u6807\u9898",
+      title: "内容小节" + String(index + 1).padStart(2, "0"),
+      summary: "按连续段落或同级列表生成的本地回退分组，可在结构解析中继续调整。",
       sourceSentenceIds: list.map((item) => item.id),
       estimatedCardCount: 1,
     }),
   );
-  const cards: SemanticCard[] = [];
-  cards.push({
-    eyebrow: project.eventName || "完整原文卡片",
-    title: project.name || project.eventName || "内容整理",
-    body: "以下内容按原文顺序拆分为可阅读图片，正文区保留用户原文。",
-    pageRole: "cover",
-  });
-  for (const block of semanticBlocks) {
-    const blockSentences = sentences.filter((sentence) =>
-      block.sourceSentenceIds.includes(sentence.id),
-    );
-    cards.push({
-      eyebrow: `${block.id} · 本地分组`,
-      title: makeFallbackTitle(cards.length - 1, block.title, "block-start"),
-      body: blockSentences.map((item) => item.text).join(""),
-      semanticBlockId: block.id,
-      pageRole: "block-start",
-      sourceSentenceIds: blockSentences.map((item) => item.id),
-    });
-  }
-  const title = project.name || project.eventName || "完整内容卡片";
   return {
     units: semanticBlocks.map((block) => ({
       id: block.id,
@@ -504,13 +498,11 @@ function fallbackPlan(
       role: "content" as const,
     })),
     semanticBlocks,
-    cards,
-    title,
-    summary: sentences.map((sentence) => sentence.text).join(""),
-    tags: "#小红书图文 #内容整理 #完整原文",
+    // 卡片仅在用户确认单卡结构后由客户端映射，不在回退阶段提前生成。
+    cards: [],
+    title: "完整内容卡片",
   };
 }
-
 function normalizePlan(
   project: ProjectPayload,
   sentences: SourceSentence[],
@@ -611,10 +603,22 @@ function normalizePlan(
 
   const missing = sentences.filter((sentence) => !used.has(sentence.id));
   if (missing.length) {
-    const fallback = fallbackPlan(project, missing).cards.filter(
-      (card) => card.pageRole !== "cover",
-    );
-    cards.push(...fallback);
+    for (const group of groupFallbackSentences(missing)) {
+      const fallbackIndex = cards.length;
+      const fallbackBody = group.map((sentence) => sentence.text).join("\n");
+      cards.push({
+        eyebrow: `补充内容 · 原文`,
+        title: makeFallbackTitle(
+          fallbackIndex,
+          fallbackUnitTitle(fallbackBody),
+          "content",
+        ),
+        body: fallbackBody,
+        semanticBlockId: `B${String(fallbackIndex).padStart(2, "0")}`,
+        pageRole: "content",
+        sourceSentenceIds: group.map((sentence) => sentence.id),
+      });
+    }
   }
 
   const units = normalizeCardUnits(
@@ -652,8 +656,6 @@ function normalizePlan(
     cards: [],
     title:
       plan.deckTitle || project.name || project.eventName || "完整内容卡片",
-    summary: sentences.map((sentence) => sentence.text).join(""),
-    tags: "#小红书图文 #完整原文 #内容整理",
   };
 }
 
@@ -670,6 +672,58 @@ function fallbackPublication(project: ProjectPayload) {
   };
 }
 
+function publicationPlanFromPlainText(
+  text: string,
+  project: ProjectPayload,
+): ModelPlan | null {
+  const cleaned = text
+    .replace(/```(?:markdown|text|plain)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  if (cleaned.length < 12) return null;
+
+  const lines = cleaned
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return null;
+
+  let title = "";
+  const first = lines[0];
+  const heading = first.match(/^#{1,6}\s+(.+)$/);
+  const labelledTitle = first.match(/^(?:标题|title)\s*[:：]\s*(.+)$/i);
+  if (heading?.[1]) {
+    title = heading[1].trim();
+    lines.shift();
+  } else if (labelledTitle?.[1]) {
+    title = labelledTitle[1].trim();
+    lines.shift();
+  }
+
+  let tags = "";
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const matches = lines[index].match(/#[^\s#，。；、,;]+/g);
+    if (matches?.length) {
+      tags = matches.join(" ");
+      lines.splice(index, 1);
+      break;
+    }
+  }
+
+  if (/^(?:正文|body)\s*[:：]?$/i.test(lines[0] || "")) lines.shift();
+  const body = lines.join("\n\n").trim();
+  if (!body) return null;
+  return {
+    semanticBlocks: [],
+    cards: [],
+    publication: {
+      title: title || project.name || project.eventName || "今天想记录一下",
+      body,
+      tags: tags || "#生活记录 #真实感受",
+      toneLabel: "模型生成",
+    },
+  };
+}
 function normalizePublication(project: ProjectPayload, plan: ModelPlan) {
   const publication = plan.publication;
   const draft = fitPublicationDraft({
@@ -690,7 +744,161 @@ function normalizePublication(project: ProjectPayload, plan: ModelPlan) {
   };
 }
 
-async function callOpenAICompatible(
+function structureMaxTokens(fragmentCount: number) {
+  // A structure plan returns only titles and source-ID ranges, but a plan with
+  // dozens of fragments still needs enough room to close its JSON object.
+  return Math.min(1600, Math.max(900, 700 + fragmentCount * 8));
+}
+
+function publicationMaxTokens(originalLength: number) {
+  return Math.min(1800, Math.max(1200, 900 + Math.ceil(originalLength / 2)));
+}
+
+type ChatCompletionUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+type ChatCompletionMessage = {
+  content?: unknown;
+  reasoning_content?: unknown;
+  reasoning?: unknown;
+  refusal?: unknown;
+  function_call?: { arguments?: unknown };
+  tool_calls?: Array<{ function?: { arguments?: unknown } }>;
+};
+
+type ChatCompletionChoice = {
+  message?: ChatCompletionMessage;
+  text?: unknown;
+  finish_reason?: unknown;
+};
+
+type ChatCompletionPayload = {
+  choices?: ChatCompletionChoice[];
+  usage?: ChatCompletionUsage;
+  output_text?: unknown;
+};
+
+type CompletionDiagnostics = {
+  choiceCount: number;
+  finishReason?: string;
+  messageContentKind: string;
+  choiceTextKind: string;
+  outputTextKind: string;
+  reasoningKind: string;
+  refusalKind: string;
+  messageFields: string[];
+};
+
+type CompletionText = {
+  text: string;
+  source: "message.content" | "choice.text" | "tool.arguments" | "output_text" | "none";
+  diagnostics: CompletionDiagnostics;
+};
+
+function responseValueKind(value: unknown) {
+  if (value === null) return "null";
+  if (typeof value === "string") return `string:${value.length}`;
+  if (Array.isArray(value)) return `array:${value.length}`;
+  return typeof value;
+}
+
+function textFromCompletionField(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (!Array.isArray(value)) {
+    if (!value || typeof value !== "object") return "";
+    const record = value as Record<string, unknown>;
+    return textFromCompletionField(record.text) || textFromCompletionField(record.value);
+  }
+  return value
+    .map((part) => textFromCompletionField(part))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function completionText(data: ChatCompletionPayload): CompletionText {
+  const choices = Array.isArray(data.choices) ? data.choices : [];
+  const choice = choices[0];
+  const message = choice?.message;
+  const toolArguments = (message?.tool_calls || [])
+    .map((call) => textFromCompletionField(call.function?.arguments))
+    .find(Boolean) || textFromCompletionField(message?.function_call?.arguments);
+  const candidates: Array<{
+    source: CompletionText["source"];
+    value: unknown;
+  }> = [
+    { source: "message.content", value: message?.content },
+    { source: "choice.text", value: choice?.text },
+    { source: "tool.arguments", value: toolArguments },
+    { source: "output_text", value: data.output_text },
+  ];
+  const diagnostics: CompletionDiagnostics = {
+    choiceCount: choices.length,
+    finishReason:
+      typeof choice?.finish_reason === "string"
+        ? choice.finish_reason
+        : undefined,
+    messageContentKind: responseValueKind(message?.content),
+    choiceTextKind: responseValueKind(choice?.text),
+    outputTextKind: responseValueKind(data.output_text),
+    reasoningKind: responseValueKind(
+      message?.reasoning_content ?? message?.reasoning,
+    ),
+    refusalKind: responseValueKind(message?.refusal),
+    messageFields: message
+      ? Object.keys(message).filter((key) =>
+          [
+            "content",
+            "reasoning_content",
+            "reasoning",
+            "refusal",
+            "function_call",
+            "tool_calls",
+          ].includes(key),
+        )
+      : [],
+  };
+  for (const candidate of candidates) {
+    const text = textFromCompletionField(candidate.value);
+    if (text) return { text, source: candidate.source, diagnostics };
+  }
+  return { text: "", source: "none", diagnostics };
+}
+
+function completionDiagnosticsLabel(diagnostics: CompletionDiagnostics) {
+  return [
+    `finish_reason=${diagnostics.finishReason || "unknown"}`,
+    `message.content=${diagnostics.messageContentKind}`,
+    `choice.text=${diagnostics.choiceTextKind}`,
+    `output_text=${diagnostics.outputTextKind}`,
+    `reasoning=${diagnostics.reasoningKind}`,
+    `refusal=${diagnostics.refusalKind}`,
+  ].join(", ");
+}
+
+function missingCompletionMessage(diagnostics: CompletionDiagnostics) {
+  const cause =
+    diagnostics.finishReason === "length"
+      ? "模型响应在生成完成前被截断，未返回可读取的内容"
+      : "模型接口已响应，但未返回可读取的内容";
+  return `${cause}（${completionDiagnosticsLabel(diagnostics)}）`;
+}
+
+function completionUsage(data: ChatCompletionPayload) {
+  const usage = data.usage;
+  return usage
+    ? {
+        promptTokens: usage.prompt_tokens,
+        completionTokens: usage.completion_tokens,
+        totalTokens: usage.total_tokens,
+      }
+    : undefined;
+}
+
+async function callSinglePassCardStructurePlanner(
   env: RuntimeEnv | undefined,
   project: ProjectPayload,
   sentences: SourceSentence[],
@@ -702,30 +910,35 @@ async function callOpenAICompatible(
   const model = envString(env, "MODEL_NAME", "model_name") || "gpt-4.1-mini";
   if (!apiKey) throw new Error("缺少模型密钥");
 
-  const originalLength = [...(project.originalText || "")].length;
-  const publicationTask = `\n\n精华版发布文案任务（无论当前界面选择哪种输出模式，都必须与卡片结果同时返回）：\n1. 原文共 ${originalLength} 字，${originalLength > SUMMARY_REWRITE_THRESHOLD ? `超过 ${SUMMARY_REWRITE_THRESHOLD} 字，必须重新组织和压缩` : "可以轻量润色并优化阅读节奏"}。\n2. 根据内容场景自动选择最自然的口吻：游乐园、旅行等偏欢快活泼；学术论坛、研究思考偏严谨深刻；开发者社区偏轻松活跃；读书、电影、聚餐或日常小事偏真实、有画面感和个人情绪。不要拘泥于这些类别，要根据原文自行判断。\n3. 写成可以直接粘贴到小红书发布页的成稿，标题、正文、标签合计目标约 ${SUMMARY_GENERATION_TARGET} 字，绝对不要超过 930 字，为平台计数留出余量。\n4. 开头要有自然的吸引力，但不要使用夸张标题党；正文要有具体信息、个人判断和节奏变化，结尾留下真实余味或交流空间。\n5. 少用“首先、其次、最后、总的来说、值得一提、赋能、深刻认识到”等模板词；不要写“作为一个 AI”；不要堆砌 emoji、感叹号、排比和空洞金句。\n6. 不能编造原文没有出现的人物、地点、对话、数字、感官细节或结论。可以改变表达和组织方式，但事实必须来自原文。\n7. toneLabel 用 2-8 个字描述实际采用的口吻，例如“欢快有画面”“严谨而深刻”“轻松有思考”，不要照抄示例。`;
-
   const capacityRule =
     project.outputMode === "image-card"
-      ? "初次分块按“带图片卡片”的保守容量安排：每张卡上半部必须为用户图片预留空间，正文最多使用同等纯文字紧凑卡约 60% 的容量；宁可拆成更多相对独立完整的单元。"
-      : "初次分块按“舒展”密度的保守容量安排；宁可拆成更多相对独立完整的单元，也不要为了凑字数把两个主题合并或在句子中部截断。";
-  const cardPlanningParameters =
-    project.outputMode === "image-card"
-      ? "presentationMode=image-card; planningDensity=compact; contentCapacityRatio=0.60; mediaRegion=top-39-percent"
-      : "presentationMode=card; planningDensity=relaxed; contentCapacityRatio=1.00; mediaRegion=none";
-  const prompt = `你是一个中文内容编辑系统。任务：将用户提交的完整文段，按语义顺序拆成若干个“单卡内容单元”。每个单元确认后恰好生成一张 1080 × 1440 的内容卡。\n\n硬性规则：\n1. 图片正文必须完整保留用户原文，不得改写、删减、总结、替换原文句子。\n2. 你只能返回原文句子 ID 的分组和每个单元的概括标题；不要返回 cards、导语、结束语或估算页数。\n3. ${capacityRule}\n4. 不要在语义强相关的句子、列表项、URL、路径或英文单词中间断开；每个单元必须在完整句子/完整列表项边界结束。\n5. 所有句子 ID 必须且只能出现一次，且 units 数组顺序必须与原文顺序一致。\n6. 每个单元的 title 是根据本页内容生成的“小标题”，控制在 6-14 个汉字；禁止直接复制正文开头，禁止使用省略号、页码或“内容小节”。\n7. 如果原文开头是“一楼的H1-1展区主要是……”这类句子，标题应概括为“展区里的模型信号”“未来会走向何处”这类短标题，而不是照搬正文。${publicationTask}\n\n用户背景：\n项目：${project.name || ""}\n内容类型：${project.contentType || project.eventType || "未填写"}\n活动/场景：${project.eventName || ""}\n\n句子列表：\n${sentences.map((sentence) => `${sentence.id}: ${sentence.text}`).join("\n")}\n\n只返回 JSON，不要解释。格式：\n{\n  "deckTitle": "整组图片标题",\n  "deckSubtitle": "一句封面副标题",\n  "units": [{"id":"U01","title":"本页标题","role":"content","sourceSentenceIds":["S01-01"]}],\n  "publication": {"title":"可直接发布的标题","body":"个性化口吻的正文","tags":"#相关标签 #真实标签","toneLabel":"实际采用的口吻"}\n}`;
-
-  const semanticPlanningOverride = [
-    "IMPORTANT: This is semantic planning pass one.",
-    "The requirements below replace every earlier instruction that asks for units or cards.",
-    "Return deckTitle, deckSubtitle, semanticBlocks and publication only; do not return units or cards.",
-    "Each semantic block must be a complete, continuous topic, stage, argument, or step chain, not an atomic line.",
-    "Formatting, list indentation and paragraph boundaries are evidence only; use semantic transitions even when text is unformatted.",
-    "Keep related parent steps, substeps, commands and explanations together when they express one stage.",
-    "All source IDs must appear exactly once across semanticBlocks and remain in original order.",
-    "For every block include purpose (step, explanation, example, issue, or conclusion) and boundaryReason.",
-  ].join(" ");
-
+      ? "带图片卡片：上半部需预留图片区域，正文容量约为纯文字紧凑卡的 60%；宁可在完整语义边界拆为多张，也不能截断句子、列表项、命令、URL 或路径。"
+      : "纯文字卡片：按舒展密度的保守容量规划；只有确实放不下时，才在完整语义边界拆分。";
+  const sourceAtoms = sentences
+    .map((sentence) => {
+      const hints = [
+        sentence.hint || sentence.kind,
+        sentence.boundaryKind || "soft",
+        sentence.listGroupId || "",
+      ]
+        .filter(Boolean)
+        .join(",");
+      return `${sentence.id} [${hints}]: ${sentence.text}`;
+    })
+    .join("\n");
+  const prompt = [
+    "你是中文知识卡片的内容结构规划器。",
+    "任务：把完整原文直接规划为‘单卡内容单元’。结构解析页会逐项展示这些单元，用户可手动拆分、合并和改标题；确认后系统会直接映射为卡片，因此每个 unit 必须对应恰好一张内容卡。",
+    "只返回原文 ID 分组和单卡标题；不得改写、删减、总结原文，不得输出正文、导语、收尾、精华文案、卡片样式或解释。",
+    capacityRule,
+    "所有 sourceSentenceIds 必须且只能出现一次，并保持原文顺序。不能为了减少卡片把无关主题合并，也不能为了增加卡片把子步骤、命令、URL、路径或短过渡语单独分出。",
+    "标题为 6-14 个汉字的原创概括，不得照抄正文开头，不得使用页码、省略号或‘内容小节’。",
+    "标题、缩进、编号、段落只是边界证据；即使输入没有换行，也应依据主题、因果、转折和步骤关系分组。",
+    `项目：${project.name || ""}\n内容类型：${project.contentType || project.eventType || "未填写"}\n主题/场景：${project.eventName || ""}`,
+    "原文片段：\n" + sourceAtoms,
+    '只返回 JSON：{"deckTitle":"整套卡片标题","deckSubtitle":"封面副标题","units":[{"id":"U01","title":"本页标题","role":"content","sourceSentenceIds":["S01-01"]}]}',
+  ].join("\n\n");
+  const maxTokens = structureMaxTokens(sentences.length);
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -738,21 +951,13 @@ async function callOpenAICompatible(
         {
           role: "system",
           content:
-            "Return valid JSON only. This is semantic-planning pass one; return only semanticBlocks plus the requested publication draft. Do not return units or cards." +
-            "\n\n" +
-            semanticPlanningOverride,
+            "Return valid JSON only. Produce one complete single-card structure plan; do not generate publication copy or a second planning stage.",
         },
-        {
-          role: "user",
-          content:
-            prompt +
-            "\n\nPlanning parameters: " +
-            cardPlanningParameters +
-            "\n\n" +
-            semanticPlanningOverride,
-        },
+        { role: "user", content: prompt },
       ],
-      temperature: 0.25,
+      temperature: 0.2,
+      max_tokens: maxTokens,
+      ...fastStructuredOutputOptions(model),
       response_format: { type: "json_object" },
     }),
   });
@@ -762,118 +967,156 @@ async function callOpenAICompatible(
       `模型接口调用失败：${response.status} ${detail.slice(0, 180)}`,
     );
   }
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
+  const data = (await response.json()) as ChatCompletionPayload;
+  const completion = completionText(data);
+  if (!completion.text) {
+    throw new Error(missingCompletionMessage(completion.diagnostics));
+  }
+  let plan: ModelPlan;
+  try {
+    plan = compactJsonFromModel(completion.text);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "模型返回无法解析";
+    throw new Error(`${message}（source=${completion.source}; ${completionDiagnosticsLabel(completion.diagnostics)}）`);
+  }
+  if (!Array.isArray(plan.units) || !plan.units.length) {
+    throw new Error("模型未返回单卡内容结构");
+  }
+  return {
+    plan,
+    maxTokens,
+    model,
+    usage: completionUsage(data),
+    completionSource: completion.source,
+    responseDiagnostics: completion.diagnostics,
   };
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("模型未返回内容");
-  return compactJsonFromModel(content);
 }
 
-async function callCardUnitPlanner(
-  env: RuntimeEnv | undefined,
+/** Generates publication copy as an independent task, either in the background or for summary-only output. */
+export async function generatePublicationDraft(
   project: ProjectPayload,
-  sentences: SourceSentence[],
-  semanticBlocks: ModelBlock[],
+  env?: RuntimeEnv,
 ) {
+  const originalText = project.originalText || "";
+  if (!originalText.trim()) return { ok: false, error: "请先输入原文" };
+  const traceId = `publication-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 7)}`;
+  const startedAt = Date.now();
+  const originalLength = [...originalText].length;
+  const maxTokens = publicationMaxTokens(originalLength);
+  console.info("[publication] start", {
+    traceId,
+    characters: originalLength,
+    model: envString(env, "MODEL_NAME", "model_name") || "gpt-4.1-mini",
+    maxTokens,
+  });
+
+  const fallback = () => {
+    const publication = fallbackPublication(project);
+    console.info("[publication] complete", {
+      traceId,
+      durationMs: Date.now() - startedAt,
+      mode: "local-fallback",
+    });
+    return {
+      ok: true,
+      mode: "local-fallback" as const,
+      ...publication,
+      summaryGeneration: "local-fallback" as const,
+      summaryWasRewritten: false,
+    };
+  };
+
   const baseUrl =
     envString(env, "MODEL_BASE_URL", "model_base_url").replace(/\/$/, "") ||
     "https://api.openai.com/v1";
   const apiKey = envString(env, "MODEL_KEY", "model_key", "OPENAI_API_KEY");
   const model = envString(env, "MODEL_NAME", "model_name") || "gpt-4.1-mini";
-  if (!apiKey) throw new Error("Missing model key");
+  if (!apiKey) return fallback();
 
-  const capacity =
-    project.outputMode === "image-card"
-      ? "image-card compact capacity: reserve the upper image region and use at most about sixty percent of a text-only compact card"
-      : "relaxed text-card capacity";
-  const sourceAtoms = sentences
-    .map((sentence) => {
-      const hints = [
-        sentence.hint || sentence.kind,
-        sentence.boundaryKind || "soft",
-        sentence.listGroupId || "",
-      ]
-        .filter(Boolean)
-        .join(",");
-      return sentence.id + " [" + hints + "]: " + sentence.text;
-    })
-    .join("\n");
-  const sections = semanticBlocks
-    .map(
-      (section) =>
-        section.id +
-        " | " +
-        section.title +
-        " | " +
-        (section.purpose || "explanation") +
-        " | ids: " +
-        section.sourceSentenceIds.join(",") +
-        " | boundary: " +
-        (section.boundaryReason || ""),
-    )
-    .join("\n");
-  const prompt = [
-    "You are card packing pass two for a 1080x1440 Chinese knowledge-card editor.",
-    "Create card units from the approved semantic sections and source atoms.",
-    "Do not target a fixed card count. A semantic section that fits must stay whole.",
-    "Split only when capacity requires it, and only at a complete substep, paragraph, sentence, or list-item boundary.",
-    "Never isolate a substep, command, URL, path, or short transition just to make another card.",
-    "Do not merge unrelated short sections merely to reduce the count.",
-    "Every source id must appear exactly once, in original order.",
-    "Use relation whole-section when a section stays whole; use section-start and section-continued only for a capacity split.",
-    "For a split, set splitReason to capacity. Titles must summarize the actual unit and must not copy its opening sentence.",
-    "Capacity: " + capacity + ".",
-    "Semantic sections:",
-    sections,
-    "Source atoms:",
-    sourceAtoms,
-    'Return JSON only: {"units":[{"id":"U01","title":"...","sectionId":"B01","relation":"whole-section","sourceSentenceIds":["S01-01"]}]}',
-  ].join("\n\n");
-
-  const response = await fetch(baseUrl + "/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: "Bearer " + apiKey,
-    },
-    body: JSON.stringify({
+  try {
+    const task = [
+      "根据用户原文生成一份可直接发布到小红书的精华文案。",
+      `原文共 ${originalLength} 字；${originalLength > SUMMARY_REWRITE_THRESHOLD ? "需要重新组织和压缩" : "可轻量润色并优化阅读节奏"}。`,
+      `标题、正文、标签合计目标约 ${SUMMARY_GENERATION_TARGET} 字，绝对不得超过 930 字。`,
+      "根据场景自然选择口吻；开头有吸引力但不标题党，正文有具体信息和个人判断，结尾保留真实交流空间。",
+      "不能编造原文未出现的人物、地点、对话、数字、感受或结论。少用模板词、空洞金句、emoji 和感叹号。",
+      "返回 title、body、tags 与 2-8 字的 toneLabel。",
+      `项目：${project.name || ""}\n内容类型：${project.contentType || project.eventType || "未填写"}\n主题/场景：${project.eventName || ""}`,
+      "原文：\n" + originalText,
+      '只返回 JSON：{"publication":{"title":"...","body":"...","tags":"#标签 #标签","toneLabel":"..."}}',
+    ].join("\n\n");
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Return valid JSON only. Generate publication copy only; do not plan cards or mention the generation process.",
+          },
+          { role: "user", content: task },
+        ],
+        temperature: 0.35,
+        max_tokens: maxTokens,
+        ...fastStructuredOutputOptions(model),
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!response.ok) throw new Error(`模型接口调用失败：${response.status}`);
+    const data = (await response.json()) as ChatCompletionPayload;
+    const completion = completionText(data);
+    if (!completion.text) {
+      throw new Error(missingCompletionMessage(completion.diagnostics));
+    }
+    let plan: ModelPlan;
+    let completionFormat: "json" | "plain-text" = "json";
+    try {
+      plan = compactJsonFromModel(completion.text);
+    } catch (error) {
+      const recovered = publicationPlanFromPlainText(completion.text, project);
+      if (!recovered) {
+        const message = error instanceof Error ? error.message : "模型返回无法解析";
+        throw new Error(`${message}（source=${completion.source}; ${completionDiagnosticsLabel(completion.diagnostics)}）`);
+      }
+      plan = recovered;
+      completionFormat = "plain-text";
+    }
+    if (!plan.publication?.body?.trim()) throw new Error("模型未返回精华文案");
+    const publication = normalizePublication(project, plan);
+    console.info("[publication] complete", {
+      traceId,
+      durationMs: Date.now() - startedAt,
+      mode: "model",
       model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "Return valid JSON only. Preserve all supplied source IDs exactly once and in order.",
-        },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-    }),
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      "Card planning request failed: " +
-        response.status +
-        " " +
-        detail.slice(0, 180),
-    );
+      characterCount: publication.publicationCharacterCount,
+      completionSource: completion.source,
+      completionFormat,
+      responseDiagnostics: completion.diagnostics,
+      usage: completionUsage(data),
+    });
+    return {
+      ok: true,
+      mode: "model" as const,
+      ...publication,
+      summaryGeneration: "model" as const,
+      summaryWasRewritten: originalLength > SUMMARY_REWRITE_THRESHOLD,
+    };
+  } catch (error) {
+    console.warn("[publication] failed", {
+      traceId,
+      durationMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+    return fallback();
   }
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Card planner returned no content");
-  const parsed = compactJsonFromModel(content) as unknown as {
-    units?: ModelUnit[];
-  };
-  if (!Array.isArray(parsed.units) || !parsed.units.length) {
-    throw new Error("Card planner returned no units");
-  }
-  return parsed.units;
 }
-
 export async function analyzeSemanticProject(
   project: ProjectPayload,
   env?: RuntimeEnv,
@@ -887,62 +1130,87 @@ export async function analyzeSemanticProject(
     return { ok: false, error: "未识别到可分页文本" };
   }
 
+  const traceId = `plan-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 7)}`;
+  const startedAt = Date.now();
+  console.info("[content-planning] start", {
+    traceId,
+    characters: [...originalText].length,
+    sourceFragments: sentences.length,
+    outputMode: project.outputMode || "card",
+    model: envString(env, "MODEL_NAME", "model_name") || "gpt-4.1-mini",
+    maxTokens: structureMaxTokens(sentences.length),
+    stages: 1,
+  });
+
   try {
-    const semanticPlan = await callOpenAICompatible(env, project, sentences);
-    const plannedUnits = await callCardUnitPlanner(
+    const {
+      plan,
+      maxTokens,
+      model,
+      usage,
+      completionSource,
+      responseDiagnostics,
+    } = await callSinglePassCardStructurePlanner(
       env,
       project,
       sentences,
-      semanticPlan.semanticBlocks || [],
     );
-    const plan: ModelPlan = { ...semanticPlan, units: plannedUnits };
-    if (!plan.publication?.body?.trim()) {
-      throw new Error("模型未返回可发布的精华版文案");
-    }
     const normalized = normalizePlan(project, sentences, plan);
-    const publication = normalizePublication(project, plan);
+    console.info("[content-planning] structure-plan:complete", {
+      traceId,
+      durationMs: Date.now() - startedAt,
+      model,
+      maxTokens,
+      completionSource,
+      responseDiagnostics,
+      usage,
+      cardUnits: normalized.units.length,
+    });
+    console.info("[content-planning] complete", {
+      traceId,
+      durationMs: Date.now() - startedAt,
+      mode: "model",
+      cardUnits: normalized.units.length,
+    });
     return {
       ok: true,
-      mode: "model",
+      mode: "model" as const,
       analysisRequestedMode: project.outputMode || "card",
-      generatedModes: ["summary", "card"] as const,
+      generatedModes: [] as const,
       sourceSentences: sentences,
       ...normalized,
-      title: publication.title,
-      summary: publication.body,
-      tags: publication.tags,
-      publicationTone: publication.publicationTone,
-      publicationCharacterCount: publication.publicationCharacterCount,
-      summaryGeneration: "model",
-      summaryWasRewritten: [...originalText].length > SUMMARY_REWRITE_THRESHOLD,
       planningVersion: CARD_PLANNING_PROMPT_VERSION,
     };
   } catch (modelError) {
+    console.warn("[content-planning] model-plan:failed", {
+      traceId,
+      durationMs: Date.now() - startedAt,
+      message: modelError instanceof Error ? modelError.message : "Unknown error",
+    });
     const fallback = fallbackPlan(project, sentences);
-    const publication = fallbackPublication(project);
+    console.info("[content-planning] complete", {
+      traceId,
+      durationMs: Date.now() - startedAt,
+      mode: "local-fallback",
+      cardUnits: fallback.units.length,
+    });
     return {
       ok: true,
-      mode: "local-fallback",
+      mode: "local-fallback" as const,
       analysisRequestedMode: project.outputMode || "card",
-      generatedModes: ["summary", "card"] as const,
+      generatedModes: [] as const,
       warning:
         modelError instanceof Error
           ? modelError.message
           : "模型调用失败，已使用本地回退",
       sourceSentences: sentences,
       ...fallback,
-      title: publication.title,
-      summary: publication.body,
-      tags: publication.tags,
-      publicationTone: publication.publicationTone,
-      publicationCharacterCount: publication.publicationCharacterCount,
-      summaryGeneration: "local-fallback",
-      summaryWasRewritten: false,
       planningVersion: CARD_PLANNING_PROMPT_VERSION,
     };
   }
 }
-
 export async function handleSemanticCardsRequest(
   request: Request,
   env?: RuntimeEnv,

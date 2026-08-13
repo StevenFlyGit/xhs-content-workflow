@@ -15,6 +15,28 @@ export type CardPreviewData = {
   pageRole?: string;
 };
 
+const technicalTokenPattern =
+  /((?:https?:\/\/|www\.)[^\s]+|(?:[A-Za-z]:)?(?:[A-Za-z0-9._-]+[\\/][^\s]+)|[A-Za-z0-9][A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]{15,})/g;
+const technicalTokenMatcher =
+  /^(?:(?:https?:\/\/|www\.)[^\s]+|(?:[A-Za-z]:)?(?:[A-Za-z0-9._-]+[\\/][^\s]+)|[A-Za-z0-9][A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]{15,})$/;
+
+/**
+ * Ordinary English keeps natural word wrapping. URLs, paths, and long
+ * technical identifiers use character breaks only after filling the line.
+ */
+function renderTextWithLineEndBreaks(text: string) {
+  return text.split(technicalTokenPattern).map((part, index) => {
+    if (!part) return null;
+    return technicalTokenMatcher.test(part) ? (
+      <span className="line-end-break" key={index}>
+        {part}
+      </span>
+    ) : (
+      part
+    );
+  });
+}
+
 export type CardLayoutStatus = {
   overflow: boolean;
   contentClipped: boolean;
@@ -122,7 +144,7 @@ export function CardPreview({
   const title = (
     <h2 className="card-title">
       {normalized.title.split("\n").map((line, index) => (
-        <span key={index}>{line}</span>
+        <span key={index}>{renderTextWithLineEndBreaks(line)}</span>
       ))}
     </h2>
   );
@@ -158,21 +180,27 @@ export function CardPreview({
       )}
       <div className="card-body">
         {showLead && normalized.addedLead && (
-          <p className="added-text">{normalized.addedLead}</p>
+          <p className="added-text">
+            {renderTextWithLineEndBreaks(normalized.addedLead)}
+          </p>
         )}
-        <p className="original-text">{normalized.body}</p>
+        <p className="original-text">
+          {renderTextWithLineEndBreaks(normalized.body)}
+        </p>
         {normalized.bullets && (
           <ul>
             {normalized.bullets.map((item, index) => (
               <li key={index}>
                 <i>{index + 1}</i>
-                <span>{item}</span>
+                <span>{renderTextWithLineEndBreaks(item)}</span>
               </li>
             ))}
           </ul>
         )}
         {showEnding && normalized.addedEnding && (
-          <p className="added-text ending">{normalized.addedEnding}</p>
+          <p className="added-text ending">
+            {renderTextWithLineEndBreaks(normalized.addedEnding)}
+          </p>
         )}
       </div>
       <div className="card-foot">
