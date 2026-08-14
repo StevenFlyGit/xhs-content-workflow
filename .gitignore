@@ -4,6 +4,7 @@ dist/
 .cache/
 .turbo/
 .wrangler/
+esa/
 bun.lockb
 package-lock.json
 pnpm-lock.yaml

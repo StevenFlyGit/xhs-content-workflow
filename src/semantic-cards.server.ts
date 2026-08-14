@@ -98,12 +98,21 @@ type ModelPlan = {
 
 export const CARD_PLANNING_PROMPT_VERSION = "card-plan-v3-single-pass";
 
+function readProcessEnv(...keys: string[]): string {
+  if (typeof process === 'undefined') return ''
+  for (const key of keys) {
+    const value = process.env?.[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
 function envString(env: RuntimeEnv | undefined, ...keys: string[]) {
   for (const key of keys) {
     const value = env?.[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
-  return "";
+  return readProcessEnv(...keys);
 }
 
 /** DeepSeek V4 enables thinking by default; structured short-output tasks do not need it. */
