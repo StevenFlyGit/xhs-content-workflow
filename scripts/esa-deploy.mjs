@@ -21,10 +21,23 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import Esa20240910, * as $Esa20240910 from '@alicloud/esa20240910'
+import EsaSdk, * as $Esa20240910 from '@alicloud/esa20240910'
 import * as $OpenApi from '@alicloud/openapi-client'
 import * as $Util from '@alicloud/tea-util'
 import Credential from '@alicloud/credentials'
+
+// The SDK is CJS: under Node ESM the client class lands on `.default.default`
+// (namespace object -> default export -> class). Resolve defensively.
+const EsaClient = typeof EsaSdk === 'function'
+  ? EsaSdk
+  : typeof EsaSdk.default === 'function'
+    ? EsaSdk.default
+    : EsaSdk.default.default
+const CredentialCtor = typeof Credential === 'function'
+  ? Credential
+  : typeof Credential.default === 'function'
+    ? Credential.default
+    : Credential.default.default
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const ROUTINE_NAME = process.argv[2] || 'xhs-content-workflow'
@@ -32,13 +45,13 @@ const ZIP_PATH = process.argv[3] || path.join(ROOT, 'esa', `${ROUTINE_NAME}.zip`
 const USER_AGENT = 'AlibabaCloud-Agent-Skills/alibabacloud-esa-pages-deploy'
 
 function createClient() {
-  const credential = new Credential.default()
+  const credential = new CredentialCtor()
   const config = new $OpenApi.Config({
     credential,
     endpoint: 'esa.cn-hangzhou.aliyuncs.com',
     userAgent: USER_AGENT,
   })
-  return new Esa20240910.default(config)
+  return new EsaClient(config)
 }
 
 function callApiParams(action, method) {
@@ -56,11 +69,28 @@ function callApiParams(action, method) {
 }
 
 async function ensureErService(client, runtime) {
-  const status = await client.getErService(new $Esa20240910.GetErServiceRequest({}))
-  if (status.body?.status === 'online') return
-  await client.openErService(new $Esa20240910.OpenErServiceRequest({}))
+  try {
+    const status = await client.getErService(new $Esa20240910.GetErServiceRequest({}))
+    const state = String(status.body?.status ?? status.body?.Status ?? '').toLowerCase()
+    if (state === 'online' || state.includes('open')) return
+  } catch {
+    // GetErService unavailable — fall through and let OpenErService decide.
+  }
+  try {
+    await client.openErService(new $Esa20240910.OpenErServiceRequest({}))
+  } catch (error) {
+    // Already activated accounts surface as 400 ErService.HasOpened — that
+    // means the service is online, so treat it as success.
+    const detail = String(error?.message ?? error?.code ?? '')
+    if (detail.includes('HasOpened')) {
+      console.log('[esa-deploy] Edge Routine service already activated.')
+      return
+    }
+    throw error
+  }
   const recheck = await client.getErService(new $Esa20240910.GetErServiceRequest({}))
-  if (recheck.body?.status !== 'online') {
+  const state = String(recheck.body?.status ?? recheck.body?.Status ?? '').toLowerCase()
+  if (state && state !== 'online' && !state.includes('open')) {
     throw new Error('Failed to enable Edge Routine service. Check account permissions (AliyunESAFullAccess).')
   }
 }
@@ -73,7 +103,9 @@ async function ensureRoutine(client, name) {
     }))
     console.log(`[esa-deploy] Routine created: ${name}`)
   } catch (error) {
-    if (!String(error?.message ?? '').includes('RoutineNameAlreadyExist')) throw error
+    // Observed error codes: RoutineAlreadyExist / RoutineNameAlreadyExist(s).
+    if (!String(error?.message ?? '').includes('RoutineAlreadyExist')
+      && !String(error?.message ?? '').includes('RoutineNameAlreadyExist')) throw error
     console.log(`[esa-deploy] Routine exists, deploying new version: ${name}`)
   }
 }
@@ -147,8 +179,10 @@ async function printAccessUrl(client, name) {
     const tokenResp = await client.getRoutineAccessToken(
       new $Esa20240910.GetRoutineAccessTokenRequest({ name }),
     )
-    const token = tokenResp.body?.accessToken
+    // SDK returns the JWT under `token` (not `accessToken`).
+    const token = tokenResp.body?.token ?? tokenResp.body?.accessToken
     console.log(`[esa-deploy] Access URL: https://${domain}${token ? `?esa_er_token=${token}` : ''}`)
+    console.log('[esa-deploy] Note: the token is valid for 1 hour; new domains may need a few minutes for DNS + certificate provisioning.')
   } catch {
     console.log(`[esa-deploy] Access URL: https://${domain}`)
   }
@@ -158,6 +192,12 @@ async function main() {
   if (!existsSync(ZIP_PATH)) {
     console.error(`[esa-deploy] Zip not found: ${ZIP_PATH}`)
     console.error('[esa-deploy] Run `bun run build && bun run package:esa` first.')
+    process.exit(1)
+  }
+  if (!process.env.ALIBABA_CLOUD_ACCESS_KEY_ID || !process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET) {
+    console.error('[esa-deploy] Missing Alibaba Cloud credentials in this process.')
+    console.error('[esa-deploy] Set ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET,')
+    console.error('[esa-deploy] then OPEN A NEW terminal (user-level vars do not propagate to running shells).')
     process.exit(1)
   }
   const zipBuffer = readFileSync(ZIP_PATH)
