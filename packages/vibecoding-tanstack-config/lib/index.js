@@ -6,20 +6,19 @@ import { defineConfig } from 'vite'
 
 export function defineVibeCodingConfig(options = {}) {
   const extra = options.extraConfig ?? {}
-  return defineConfig({
+  return defineConfig(({ command }) => ({
     ...extra,
     resolve: {
       tsconfigPaths: true,
       ...(extra.resolve ?? {}),
     },
-    environments: {
-      ssr: {
-        // ESA Edge Routine has no npm runtime: bundle every dependency into
-        // the server entry. Node builtins stay external and require the
-        // routine's Node.js compatibility mode.
-        resolve: { noExternal: true },
-      },
-    },
+    // ESA Edge Routine has no npm runtime, so production builds must bundle
+    // every dependency into the server entry. Node builtins stay external and
+    // are shimmed at packaging time. Dev keeps the default external behavior
+    // — inlining CJS deps (e.g. react) breaks Vite's dev module runner.
+    ...(command === 'build'
+      ? { environments: { ssr: { resolve: { noExternal: true } } } }
+      : {}),
     plugins: [
       devtools(),
       tailwindcss(),
@@ -27,5 +26,5 @@ export function defineVibeCodingConfig(options = {}) {
       viteReact(),
       ...(extra.plugins ?? []),
     ],
-  })
+  }))
 }
