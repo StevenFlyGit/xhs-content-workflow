@@ -13,6 +13,7 @@ export type CardPreviewData = {
     source?: "model" | "manual";
   };
   pageRole?: string;
+  imageLayout?: boolean;
 };
 
 const technicalTokenPattern =
@@ -122,7 +123,6 @@ export function CardPreview({
   page,
   total,
   overflow = false,
-  presentation = "card",
   mediaUrl,
 }: {
   card: CardPreviewData;
@@ -131,12 +131,10 @@ export function CardPreview({
   page: number;
   total: number;
   overflow?: boolean;
-  presentation?: "summary" | "card" | "image-card";
   mediaUrl?: string;
 }) {
   const normalized = safeCard(card, Math.max(0, page - 1));
-  const imageCard =
-    presentation === "image-card" && normalized.pageRole !== "cover";
+  const imageCard = normalized.imageLayout === true && normalized.pageRole !== "cover";
   const showLead =
     normalized.enhancement?.leadEnabled ?? Boolean(normalized.addedLead);
   const showEnding =

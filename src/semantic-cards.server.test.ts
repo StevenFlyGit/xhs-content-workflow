@@ -340,19 +340,19 @@ describe("content planning and publication generation", () => {
       vi.unstubAllGlobals();
     }
   });
-  it("plans image-card analysis as a dedicated mode and keeps source IDs", async () => {
+  it("plans complete-card analysis with relaxed capacity and keeps source IDs", async () => {
     const result = await analyzeSemanticProject(
       {
-        name: "项目总结",
-        contentType: "项目总结",
-        outputMode: "image-card",
-        originalText: "第一段完整内容。\n\n第二段完整内容。",
+        name: "\u9879\u76ee\u603b\u7ed3",
+        contentType: "\u9879\u76ee\u603b\u7ed3",
+        outputMode: "card",
+        originalText: "\u7b2c\u4e00\u6bb5\u5b8c\u6574\u5185\u5bb9\u3002\n\n\u7b2c\u4e8c\u6bb5\u5b8c\u6574\u5185\u5bb9\u3002",
       },
       {},
     );
 
     expect(result.ok).toBe(true);
-    expect(result.analysisRequestedMode).toBe("image-card");
+    expect(result.analysisRequestedMode).toBe("card");
     expect(
       result.units.every((unit) => unit.sourceSentenceIds.length > 0),
     ).toBe(true);

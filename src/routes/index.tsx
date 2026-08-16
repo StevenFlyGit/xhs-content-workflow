@@ -22,7 +22,6 @@ import {
   Palette,
   PanelRight,
   Plus,
-  Save,
   Settings2,
   Sparkles,
   Trash2,
@@ -104,6 +103,8 @@ type Card = {
   stale?: boolean;
   manualTitle?: boolean;
   manualBody?: boolean;
+  /** 图片版仅影响当前内容卡的呈现，不参与结构解析。 */
+  imageLayout?: boolean;
   media?: CardMedia;
 };
 type Version = {
@@ -131,7 +132,7 @@ type LocalWorkspace = {
   versions?: Version[];
 };
 
-type OutputMode = "summary" | "card" | "image-card";
+type OutputMode = "summary" | "card";
 type ProjectState = {
   id?: string;
   name: string;
@@ -140,7 +141,6 @@ type ProjectState = {
   contentType?: string;
   originalText: string;
   outputMode: OutputMode;
-  requireImageMedia?: boolean;
   title: string;
   summary: string;
   tags: string;
@@ -329,19 +329,16 @@ function normalizeOutputMode(
   value: unknown,
   fallback: unknown = "card",
 ): OutputMode {
-  if (value === "summary" || value === "card" || value === "image-card")
-    return value;
-  return fallback === "summary" || fallback === "image-card"
-    ? fallback
-    : "card";
+  if (value === "summary" || value === "card") return value;
+  return fallback === "summary" ? "summary" : "card";
 }
 
 function isCardOutputMode(mode: OutputMode) {
-  return mode === "card" || mode === "image-card";
+  return mode === "card";
 }
 
-function cardPresentationMode(mode: OutputMode): "card" | "image-card" {
-  return mode === "image-card" ? "image-card" : "card";
+function hasLegacyImageCardLayout(value: unknown, fallback?: unknown) {
+  return value === "image-card" || fallback === "image-card";
 }
 
 const initialInsights: Insight[] = [
@@ -455,7 +452,12 @@ function historyTimestamp() {
   });
 }
 
-function normalizeCard(card: Partial<Card> | undefined, index = 0): Card {
+function normalizeCard(
+  card: Partial<Card> | undefined,
+  index = 0,
+  legacyImageLayout = false,
+): Card {
+  const pageRole = typeof card?.pageRole === "string" ? card.pageRole : undefined;
   return {
     eyebrow:
       typeof card?.eyebrow === "string" && card.eyebrow.trim()
@@ -484,7 +486,7 @@ function normalizeCard(card: Partial<Card> | undefined, index = 0): Card {
       typeof card?.semanticBlockId === "string"
         ? card.semanticBlockId
         : undefined,
-    pageRole: typeof card?.pageRole === "string" ? card.pageRole : undefined,
+    pageRole,
     sourceSentenceIds: Array.isArray(card?.sourceSentenceIds)
       ? card.sourceSentenceIds.filter((item) => typeof item === "string")
       : undefined,
@@ -495,6 +497,9 @@ function normalizeCard(card: Partial<Card> | undefined, index = 0): Card {
     stale: card?.stale === true,
     manualTitle: card?.manualTitle === true,
     manualBody: card?.manualBody === true,
+    imageLayout:
+      pageRole !== "cover" &&
+      (card?.imageLayout === true || legacyImageLayout),
     media:
       card?.media &&
       typeof card.media === "object" &&
@@ -504,9 +509,11 @@ function normalizeCard(card: Partial<Card> | undefined, index = 0): Card {
   };
 }
 
-function normalizeCards(value: unknown): Card[] {
+function normalizeCards(value: unknown, legacyImageLayout = false): Card[] {
   return Array.isArray(value)
-    ? value.map((item, index) => normalizeCard(item as Partial<Card>, index))
+    ? value.map((item, index) =>
+        normalizeCard(item as Partial<Card>, index, legacyImageLayout),
+      )
     : [];
 }
 
@@ -650,7 +657,6 @@ async function renderCardPng(
   density: Density,
   page: number,
   total: number,
-  presentation: OutputMode,
   mediaUrl?: string,
 ) {
   const host = document.createElement("div");
@@ -667,7 +673,6 @@ async function renderCardPng(
       density={density}
       page={page}
       total={total}
-      presentation={presentation}
       mediaUrl={mediaUrl}
     />,
   );
@@ -722,16 +727,18 @@ async function buildImagePackage(
     tags: project.tags,
   });
   const cardMode = isCardOutputMode(project.outputMode);
-  const outputDensity =
-    project.outputMode === "image-card" ? "compact" : density;
-  if (
-    project.outputMode === "image-card" &&
-    project.requireImageMedia &&
-    cards.some((card) => card.pageRole !== "cover" && !card.media)
-  )
-    throw new Error(
-      "\u6bcf\u5f20\u5185\u5bb9\u5361\u90fd\u9700\u4e0a\u4f20\u56fe\u7247\u624d\u80fd\u5bfc\u51fa",
-    );
+  const imageCardsMissingMedia = cards
+    .map((card, index) => (
+      card.imageLayout && card.pageRole !== "cover" && !card.media
+        ? index + 1
+        : null
+    ))
+    .filter((page): page is number => page !== null);
+  if (cardMode && imageCardsMissingMedia.length)
+    throw new Error(`图片版卡片第 ${imageCardsMissingMedia.join("、")} 页尚未上传图片`);
+  const outputDensity = cards.some((card) => card.imageLayout)
+    ? "mixed"
+    : density;
   const exportedCardCount = cardMode ? cards.length : 0;
   const manifest = {
     projectName: project.name,
@@ -779,18 +786,19 @@ async function buildImagePackage(
   );
   if (cardMode) {
     for (let index = 0; index < cards.length; index += 1) {
-      const mediaUrl =
-        project.outputMode === "image-card"
-          ? await getCardMediaUrl(cards[index].media).catch(() => undefined)
-          : undefined;
+      const mediaUrl = cards[index].imageLayout
+        ? await getCardMediaUrl(cards[index].media).catch(() => undefined)
+        : undefined;
       try {
+        const cardDensity: Density = cards[index].imageLayout
+          ? "compact"
+          : density;
         const png = await renderCardPng(
           cards[index],
           theme,
-          outputDensity,
+          cardDensity,
           index + 1,
           cards.length,
-          project.outputMode,
           mediaUrl,
         );
         zip.file(`cards/card-${String(index + 1).padStart(2, "0")}.png`, png);
@@ -830,7 +838,7 @@ function Home() {
   const [analysisDirty, setAnalysisDirty] = useState(false);
   const [cards, setCards] = useState<Card[]>(initialCards);
   const [theme, setTheme] = useState<ThemeId>("research-light");
-  const [density, setDensity] = useState<Density>("standard");
+  const [density, setDensity] = useState<Density>("relaxed");
   const [editorPane, setEditorPane] = useState<EditorPane>("structure");
   const [activeCard, setActiveCard] = useState(0);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState("sample-project");
@@ -842,7 +850,7 @@ function Home() {
       insights: initialInsights,
       cards: initialCards,
       theme: "research-light",
-      density: "standard",
+      density: "relaxed",
       updatedAt: "刚刚",
       sourceSentences: initialSourceSentences,
       analysisMode: "model",
@@ -893,23 +901,18 @@ function Home() {
     Boolean(project.summaryGeneration && project.summary.trim());
   const cardGenerationAvailable =
     hasCurrentGeneration(project, "card") && !analysisDirty && cards.length > 0;
-  const generatedCardPresentation = cardPresentationMode(
-    project.analysisRequestedMode || "card",
+  const cardsReady = cardGenerationAvailable;
+  const completeCardCount = cardGenerationAvailable ? cards.length : 0;
+  const missingImageCardPages = cards.flatMap((card, index) =>
+    card.imageLayout && card.pageRole !== "cover" && !card.media
+      ? [index + 1]
+      : [],
   );
-  const cardsReady =
-    cardGenerationAvailable &&
-    (project.outputMode === "summary" ||
-      cardPresentationMode(project.outputMode) === generatedCardPresentation);
-  const completeCardCount =
-    cardGenerationAvailable && generatedCardPresentation === "card"
-      ? cards.length
-      : 0;
-  const imageCardCount =
-    cardGenerationAvailable && generatedCardPresentation === "image-card"
-      ? cards.length
-      : 0;
   const mediaSignature = useMemo(
-    () => cards.map((card) => card.media?.blobKey || "").join("|"),
+    () =>
+      cards
+        .map((card) => `${card.imageLayout ? "image" : "text"}:${card.media?.blobKey || ""}`)
+        .join("|"),
     [cards],
   );
 
@@ -941,7 +944,9 @@ function Home() {
     const createdUrls: string[] = [];
     Promise.all(
       cards.map(async (card, index) => {
-        const url = await getCardMediaUrl(card.media).catch(() => undefined);
+        const url = card.imageLayout
+          ? await getCardMediaUrl(card.media).catch(() => undefined)
+          : undefined;
         if (url) createdUrls.push(url);
         return [String(index), url] as const;
       }),
@@ -983,6 +988,13 @@ function Home() {
           } = workspace as LocalWorkspace & { exports?: unknown };
           return {
             ...workspaceWithoutLegacyMode,
+            cards: normalizeCards(
+              workspace.cards,
+              hasLegacyImageCardLayout(
+                workspace.project.outputMode as unknown,
+                legacyEditorMode,
+              ),
+            ),
             project: {
               ...workspace.project,
               outputMode: normalizeOutputMode(
@@ -1009,7 +1021,7 @@ function Home() {
         setAnalysisDirty(first.analysisDirty === true);
         setCards(normalizeCards(first.cards));
         setTheme(first.theme || "research-light");
-        setDensity(first.density || "standard");
+        setDensity(first.density || "relaxed");
         setEditorPane(
           first.editorPane || (first.cards?.length ? "cards" : "structure"),
         );
@@ -1219,7 +1231,7 @@ function Home() {
         sourceSentences: sourceSentences.filter((sentence) =>
           ids.has(sentence.id),
         ),
-        density: project.outputMode === "image-card" ? "compact" : "relaxed",
+        density: "relaxed",
       },
     });
     if (!result.units?.length) {
@@ -1295,7 +1307,7 @@ function Home() {
       insights: [],
       cards: [],
       theme: "research-light",
-      density: "standard",
+      density: "relaxed",
       editorPane: "structure",
       updatedAt: "刚刚创建",
       sourceSentences: [],
@@ -1369,9 +1381,17 @@ function Home() {
     setAnalysisMode(workspace.analysisMode || "local-fallback");
     setAnalysisWarning(workspace.analysisWarning || "");
     setAnalysisDirty(workspace.analysisDirty === true);
-    setCards(normalizeCards(workspace.cards));
+    setCards(
+      normalizeCards(
+        workspace.cards,
+        hasLegacyImageCardLayout(
+          workspace.project.outputMode as unknown,
+          workspace.editorMode,
+        ),
+      ),
+    );
     setTheme(workspace.theme);
-    setDensity(workspace.density);
+    setDensity(workspace.density || "relaxed");
     setEditorPane(
       workspace.editorPane || (workspace.cards.length ? "cards" : "structure"),
     );
@@ -1440,9 +1460,17 @@ function Home() {
         setAnalysisMode(next.analysisMode || "local-fallback");
         setAnalysisWarning(next.analysisWarning || "");
         setAnalysisDirty(next.analysisDirty === true);
-        setCards(normalizeCards(next.cards));
+        setCards(
+          normalizeCards(
+            next.cards,
+            hasLegacyImageCardLayout(
+              next.project.outputMode as unknown,
+              next.editorMode,
+            ),
+          ),
+        );
         setTheme(next.theme || "research-light");
-        setDensity(next.density || "standard");
+        setDensity(next.density || "relaxed");
         setEditorPane(
           next.editorPane || (next.cards?.length ? "cards" : "structure"),
         );
@@ -1659,6 +1687,7 @@ function Home() {
       generatedSourceKey: generationSourceKey(current),
     }));
     setAnalysisDirty(false);
+    setDensity("relaxed");
     setActiveCard(0);
     setEditorPane("cards");
     setStep("editor");
@@ -1670,14 +1699,8 @@ function Home() {
       notify("请先生成当前原文对应的精华版文案");
       return;
     }
-    if (
-      project.outputMode === "image-card" &&
-      project.requireImageMedia &&
-      cards.some((card) => card.pageRole !== "cover" && !card.media)
-    ) {
-      notify(
-        "\u8bf7\u5148\u4e3a\u6bcf\u5f20\u5185\u5bb9\u5361\u4e0a\u4f20\u56fe\u7247\uff0c\u6216\u5141\u8bb8\u4f7f\u7528\u5360\u4f4d\u56fe\u5bfc\u51fa",
-      );
+    if (isCardOutputMode(project.outputMode) && missingImageCardPages.length) {
+      notify(`图片版卡片第 ${missingImageCardPages.join("、")} 页尚未上传图片`);
       return;
     }
     if (isCardOutputMode(project.outputMode) && !cardsReady) {
@@ -1761,14 +1784,8 @@ function Home() {
       notify("精华版尚未生成，请返回编辑器生成后再导出");
       return;
     }
-    if (
-      project.outputMode === "image-card" &&
-      project.requireImageMedia &&
-      cards.some((card) => card.pageRole !== "cover" && !card.media)
-    ) {
-      notify(
-        "\u8bf7\u5148\u4e3a\u6bcf\u5f20\u5185\u5bb9\u5361\u4e0a\u4f20\u56fe\u7247\uff0c\u6216\u5141\u8bb8\u4f7f\u7528\u5360\u4f4d\u56fe\u5bfc\u51fa",
-      );
+    if (isCardOutputMode(project.outputMode) && missingImageCardPages.length) {
+      notify(`图片版卡片第 ${missingImageCardPages.join("、")} 页尚未上传图片`);
       return;
     }
     if (isCardOutputMode(project.outputMode) && !cardsReady) {
@@ -1872,12 +1889,7 @@ function Home() {
                     workspace.editorMode,
                   ) === "summary"
                     ? "精华版"
-                    : normalizeOutputMode(
-                          workspace.project.outputMode,
-                          workspace.editorMode,
-                        ) === "image-card"
-                      ? "带图片卡片"
-                      : "卡片版"}{" "}
+                    : "完整卡片版"}{" "}
                   · {workspace.updatedAt}
                 </small>
               </div>
@@ -1959,14 +1971,10 @@ function Home() {
                 setSelectedId={setEvidenceId}
                 analysisMode={analysisMode}
                 analysisWarning={analysisWarning}
-                presentation={
-                  project.outputMode === "image-card" ? "image-card" : "card"
-                }
                 onRetry={() => runAnalysis()}
                 onRetitle={retitleInsight}
                 onRefine={refineInsight}
                 onContinue={continueFromAnalysis}
-                onVersion={() => saveVersion("analysis")}
                 onStructureChange={() => setAnalysisDirty(true)}
                 notify={notify}
               />
@@ -1978,7 +1986,6 @@ function Home() {
             summaryReady={summaryReady}
             cardsReady={cardsReady}
             completeCardCount={completeCardCount}
-            imageCardCount={imageCardCount}
             generationLoading={publicationState === "loading"}
             onGenerateSummary={generatePublicationOnly}
             onReturnToStructure={returnToStructure}
@@ -2147,9 +2154,7 @@ function ProjectsView({
                     <span className="tag">
                       {outputMode === "summary"
                         ? "精华版"
-                        : outputMode === "image-card"
-                          ? "带图片卡片"
-                          : "完整卡片版"}
+                        : "完整卡片版"}
                     </span>
                     <span className={`status ${isEmpty ? "draft" : "ready"}`}>
                       <i />
@@ -2387,43 +2392,23 @@ function InputView({
                 可输入新类型，也可从已使用的类型中选择
               </small>
             </label>
-            <label>
-              <span>输出模式 *</span>
-              <div className="segmented">
-                <button
-                  type="button"
-                  className={project.outputMode === "summary" ? "active" : ""}
-                  onClick={() => update("outputMode", "summary")}
-                >
-                  精华版
-                </button>
-                <button
-                  type="button"
-                  className={project.outputMode === "card" ? "active" : ""}
-                  onClick={() => update("outputMode", "card")}
-                >
-                  完整卡片版
-                </button>
-                <button
-                  type="button"
-                  className={
-                    project.outputMode === "image-card" ? "active" : ""
-                  }
-                  onClick={() => update("outputMode", "image-card")}
-                >
-                  带图片卡片
-                </button>
+            <section className="output-mode-explainer" aria-labelledby="output-mode-heading">
+              <span id="output-mode-heading">输出内容 *</span>
+              <div className="output-mode-cards">
+                <div className="output-mode-card">
+                  <b>精华版</b>
+                  <small>
+                    生成可直接发布的个性化文案；原文较长时会调用模型压缩并匹配口吻，不生成卡片内容。
+                  </small>
+                </div>
+                <div className="output-mode-card">
+                  <b>完整卡片版</b>
+                  <small>
+                    完整保留原文，按语义拆分为可编辑卡片；每张内容卡都可单独切换为带图片版展示。
+                  </small>
+                </div>
               </div>
-              <small className={`mode-hint ${project.outputMode}`}>
-                {project.outputMode === "summary"
-                  ? charCount > SUMMARY_REWRITE_THRESHOLD
-                    ? `仅生成精华文案：原文超过 ${SUMMARY_REWRITE_THRESHOLD} 字，将调用模型压缩并匹配个性化口吻；不生成卡片内容`
-                    : "仅生成可直接发布的个性化文案，不生成卡片内容；总字数不超过 1000 字"
-                  : project.outputMode === "image-card"
-                    ? "固定紧凑密度，为每张内容卡的上半部分预留用户图片位置"
-                    : "完整保留原文，按语义拆成可编辑图片卡片"}
-              </small>
-            </label>
+            </section>
           </div>
           <div className="divider" />
           <div className="textarea-label">
@@ -2536,7 +2521,6 @@ function EditorView({
   summaryReady,
   cardsReady,
   completeCardCount,
-  imageCardCount,
   generationLoading,
   onGenerateSummary,
   onReturnToStructure,
@@ -2553,7 +2537,7 @@ function EditorView({
   mediaUrls,
   onMediaChange,
   onEnhance,
-  onVersion,
+  onVersion: _onVersion,
   onExport,
   notify,
 }: any) {
@@ -2561,8 +2545,9 @@ function EditorView({
   const current = normalizeCard(safeCards[activeCard], activeCard);
   const hasCards = cardsReady && safeCards.length > 0;
   const contentReady = mode === "summary" ? summaryReady : hasCards;
-  const imageCardMode = mode === "image-card";
-  const effectiveDensity: Density = imageCardMode ? "compact" : density;
+  const currentImageLayout =
+    current.imageLayout === true && current.pageRole !== "cover";
+  const effectiveDensity: Density = currentImageLayout ? "compact" : density;
   const validationHostRef = useRef<HTMLDivElement>(null);
   const [cardLayouts, setCardLayouts] = useState<CardLayoutStatus[]>([]);
   const [enhancingKind, setEnhancingKind] = useState<"lead" | "ending" | null>(
@@ -2661,7 +2646,7 @@ function EditorView({
       window.clearTimeout(settleTimer);
       observer?.disconnect();
     };
-  }, [cards, effectiveDensity, hasCards, imageCardMode, theme]);
+  }, [cards, density, hasCards, theme]);
 
   const layoutChecking = hasCards && cardLayouts.length !== safeCards.length;
   const overflowCount = cardLayouts.filter((item) => item.overflow).length;
@@ -2763,12 +2748,6 @@ function EditorView({
             >
               <PanelRight size={16} /> 完整卡片版{" "}
               <span>{completeCardCount}</span>
-            </button>
-            <button
-              className={mode === "image-card" ? "active" : ""}
-              onClick={() => setMode("image-card")}
-            >
-              <ImagePlus size={16} /> 带图片卡片 <span>{imageCardCount}</span>
             </button>
           </div>
           {mode === "summary" ? (
@@ -2921,7 +2900,31 @@ function EditorView({
                     </small>
                   </div>
                 )}
-                {imageCardMode && current.pageRole !== "cover" && (
+                {current.pageRole !== "cover" && (
+                  <div className="card-media-editor card-layout-toggle">
+                    <div>
+                      <b>卡片样式</b>
+                      <small>开启后本页预留图片区域，并固定使用紧凑排版。</small>
+                    </div>
+                    <label className="inline-toggle">
+                      <input
+                        type="checkbox"
+                        checked={currentImageLayout}
+                        onChange={(event) =>
+                          setCards((list: Card[]) =>
+                            normalizeCards(list).map((card, index) =>
+                              index === activeCard
+                                ? { ...card, imageLayout: event.target.checked }
+                                : card,
+                            ),
+                          )
+                        }
+                      />
+                      <span>切换为带图片版卡片</span>
+                    </label>
+                  </div>
+                )}
+                {currentImageLayout && current.pageRole !== "cover" && (
                   <div className="card-media-editor">
                     <div>
                       <b>本页图片</b>
@@ -2932,7 +2935,7 @@ function EditorView({
                             ? "\u4e0a\u4f20\u5931\u8d25\uff0c\u8bf7\u91cd\u65b0\u9009\u62e9\u56fe\u7247"
                             : current.media
                               ? "\u5df2\u4e0a\u4f20\uff0c\u53ef\u66ff\u6362\u6216\u79fb\u9664"
-                              : "\u672a\u4e0a\u4f20\u65f6\u5c06\u4fdd\u7559\u56fe\u7247\u5360\u4f4d\u533a"}
+                              : "\u5bfc\u51fa\u524d\u5fc5\u987b\u4e0a\u4f20\u56fe\u7247"}
                       </small>
                       <small className="media-crop-note">
                         {
@@ -2989,7 +2992,7 @@ function EditorView({
                   <div className="preview-controls">
                     <div className="density-control" aria-label="卡片排版密度">
                       <span>密度</span>
-                      {imageCardMode ? (
+                      {currentImageLayout ? (
                         <b className="fixed-density">紧凑（图片卡固定）</b>
                       ) : (
                         densityOptions.map((option) => (
@@ -3006,22 +3009,6 @@ function EditorView({
                         ))
                       )}
                     </div>
-                    {imageCardMode && (
-                      <label className="image-export-policy">
-                        <input
-                          type="checkbox"
-                          checked={!project.requireImageMedia}
-                          onChange={(event) =>
-                            update("requireImageMedia", !event.target.checked)
-                          }
-                        />
-                        <span>
-                          {
-                            "\u5141\u8bb8\u672a\u4e0a\u4f20\u56fe\u7247\u65f6\u4f7f\u7528\u5360\u4f4d\u56fe\u5bfc\u51fa"
-                          }
-                        </span>
-                      </label>
-                    )}
                     {layoutChecking ? (
                       <span className="capacity-indicator checking">
                         <LoaderCircle className="spin" />
@@ -3052,7 +3039,6 @@ function EditorView({
                   page={activeCard + 1}
                   total={safeCards.length}
                   overflow={currentLayout?.overflow}
-                  presentation={mode}
                   mediaUrl={mediaUrls[String(activeCard)]}
                 />
                 <div className="page-nav">
@@ -3171,10 +3157,9 @@ function EditorView({
                     key={index}
                     card={card}
                     theme={theme}
-                    density={effectiveDensity}
+                    density={card.imageLayout ? "compact" : density}
                     page={index + 1}
                     total={safeCards.length}
-                    presentation={mode}
                   />
                 ))}
               </div>
@@ -3255,8 +3240,15 @@ function ExportView({
   exporting,
 }: any) {
   const summaryMode = project.outputMode === "summary";
-  const imageCardMode = project.outputMode === "image-card";
-  const disabled = exporting || (summaryMode && publicationOverLimit);
+  const missingImageCardPages = cards.flatMap((card: Card, index: number) =>
+    card.imageLayout && card.pageRole !== "cover" && !card.media
+      ? [index + 1]
+      : [],
+  );
+  const disabled =
+    exporting ||
+    (summaryMode && publicationOverLimit) ||
+    (!summaryMode && missingImageCardPages.length > 0);
   const actionLabel = summaryMode ? "导出发布文案包" : "导出 PNG 图片包";
   return (
     <div className="page">
@@ -3288,6 +3280,17 @@ function ExportView({
               当前共 {publicationCount} 字，超出发布限制{" "}
               {publicationCount - SUMMARY_PUBLICATION_LIMIT}{" "}
               字，请返回编辑器精简。
+            </small>
+          </span>
+        </div>
+      )}
+      {!summaryMode && missingImageCardPages.length > 0 && (
+        <div className="export-limit-warning">
+          <CircleAlert size={17} />
+          <span>
+            <b>完整卡片版暂时无法导出</b>
+            <small>
+              图片版卡片第 {missingImageCardPages.join("、")} 页尚未上传图片，请返回编辑器补充图片。
             </small>
           </span>
         </div>
@@ -3338,9 +3341,7 @@ function ExportView({
               <span>
                 {summaryMode
                   ? "精华版 · 可直接发布"
-                  : imageCardMode
-                    ? "带图片卡片"
-                    : "完整卡片版"}
+                  : "完整卡片版"}
               </span>
               <b>{project.title}</b>
               <small>
@@ -3353,11 +3354,7 @@ function ExportView({
               <div>
                 <dt>输出模式</dt>
                 <dd>
-                  {summaryMode
-                    ? "精华版"
-                    : imageCardMode
-                      ? "带图片卡片"
-                      : "完整卡片版"}
+                  {summaryMode ? "精华版" : "完整卡片版"}
                 </dd>
               </div>
               {summaryMode ? (
@@ -3381,12 +3378,6 @@ function ExportView({
                     <dt>图片规格</dt>
                     <dd>1080 × 1440</dd>
                   </div>
-                  {imageCardMode && (
-                    <div>
-                      <dt>卡片密度</dt>
-                      <dd>紧凑（固定）</dd>
-                    </div>
-                  )}
                 </>
               )}
             </dl>
@@ -3414,9 +3405,11 @@ function ExportView({
                     <CheckCircle2 />
                     卡片数量已确认
                   </span>
-                  <span>
-                    <CheckCircle2 />
-                    图片资源已就绪
+                  <span className={missingImageCardPages.length ? "pending" : ""}>
+                    {missingImageCardPages.length ? <CircleAlert /> : <CheckCircle2 />}
+                    {missingImageCardPages.length
+                      ? `图片版第 ${missingImageCardPages.join("、")} 页待上传`
+                      : "图片资源已就绪"}
                   </span>
                   <span>
                     <CheckCircle2 />

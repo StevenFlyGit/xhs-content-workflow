@@ -7,7 +7,6 @@ import {
   Combine,
   FileText,
   RefreshCw,
-  Save,
   Scissors,
   Sparkles,
 } from "lucide-react";
@@ -42,12 +41,10 @@ type ContentBlockReviewProps = {
   setSelectedId: React.Dispatch<React.SetStateAction<string | null>>;
   analysisMode?: "model" | "local-fallback";
   analysisWarning?: string;
-  presentation?: "card" | "image-card";
   onRetry: () => void;
   onRetitle?: (block: ContentBlock) => Promise<string | undefined>;
   onRefine?: (block: ContentBlock) => Promise<ContentBlock[] | undefined>;
   onContinue: () => void;
-  onVersion: () => void;
   onStructureChange: () => void;
   notify: (message: string) => void;
   embedded?: boolean;
@@ -122,12 +119,10 @@ export function ContentBlockReview({
   setSelectedId,
   analysisMode,
   analysisWarning,
-  presentation = "card",
   onRetry,
   onRetitle,
   onRefine,
   onContinue,
-  onVersion,
   onStructureChange,
   notify,
   embedded = false,
@@ -154,6 +149,52 @@ export function ContentBlockReview({
   );
   const [retitling, setRetitling] = useState(false);
   const [refining, setRefining] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let frame = 0;
+    let settleTimer = 0;
+    const measure = () => {
+      if (cancelled) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const nodes = Array.from(
+          candidateHostRef.current?.querySelectorAll<HTMLElement>(
+            ".card-preview",
+          ) || [],
+        );
+        const next = nodes.map(measureCardLayout);
+        setCandidateLayouts((previous) =>
+          previous.length === next.length &&
+          previous.every(
+            (item, index) =>
+              item.overflow === next[index]?.overflow &&
+              item.contentClipped === next[index]?.contentClipped &&
+              item.utilization === next[index]?.utilization &&
+              item.horizontalOverflow === next[index]?.horizontalOverflow &&
+              item.verticalOverflow === next[index]?.verticalOverflow,
+          )
+            ? previous
+            : next,
+        );
+      });
+    };
+
+    measure();
+    settleTimer = window.setTimeout(measure, 240);
+    document.fonts?.ready.then(measure);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    if (candidateHostRef.current) observer?.observe(candidateHostRef.current);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      window.clearTimeout(settleTimer);
+      observer?.disconnect();
+    };
+  }, [blocks, sourceSentences]);
   const coverage = useMemo(() => {
     const occurrences = new Map<string, number>();
     blocks.forEach((block) =>
@@ -347,9 +388,6 @@ export function ContentBlockReview({
             </p>
           </div>
           <div className="section-actions">
-            {/* <button className="secondary" onClick={onVersion}>
-              <Save size={16} /> 保存版本
-            </button> */}
             <button className="primary" onClick={continueWithLayoutCheck}>
               确认结构并生成内容 <ChevronRight size={16} />
             </button>
@@ -363,9 +401,6 @@ export function ContentBlockReview({
             <span>确认后，每个单元恰好生成一张内容卡。</span>
           </div>
           <div>
-            {/* <button className="secondary" onClick={onVersion}>
-              <Save size={16} /> 保存结构
-            </button> */}
             <button className="primary" onClick={continueWithLayoutCheck}>
               确认结构并进入卡片编辑 <ChevronRight size={16} />
             </button>
@@ -598,7 +633,6 @@ export function ContentBlockReview({
             density="relaxed"
             page={index + 1}
             total={blocks.length}
-            presentation={presentation}
           />
         ))}
       </div>

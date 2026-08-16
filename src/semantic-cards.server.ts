@@ -19,7 +19,7 @@ type ProjectPayload = {
   eventType?: string;
   contentType?: string;
   originalText?: string;
-  outputMode?: "summary" | "card" | "image-card";
+  outputMode?: "summary" | "card";
 };
 
 export type RegenerateUnitTitleRequest = {
@@ -920,9 +920,7 @@ async function callSinglePassCardStructurePlanner(
   if (!apiKey) throw new Error("缺少模型密钥");
 
   const capacityRule =
-    project.outputMode === "image-card"
-      ? "带图片卡片：上半部需预留图片区域，正文容量约为纯文字紧凑卡的 60%；宁可在完整语义边界拆为多张，也不能截断句子、列表项、命令、URL 或路径。"
-      : "纯文字卡片：按舒展密度的保守容量规划；只有确实放不下时，才在完整语义边界拆分。";
+    "按纯文字卡片的舒展密度预留容量；仅在完整语义边界确有必要时拆分。";
   const sourceAtoms = sentences
     .map((sentence) => {
       const hints = [
